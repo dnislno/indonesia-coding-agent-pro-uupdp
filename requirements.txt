@@ -1,0 +1,1 @@
+# tidak ada dependency pihak ketiga, stdlib saja
