@@ -58,11 +58,60 @@ OUTPUT: "Query WHERE nik='3174051209900001' sudah benar"
 
 One sentence: **raw personal data never leaves the machine; only tokens do.**
 
-## Two doors, one core
+## Two doors, one core — and two different UIs
 
-**Fork mode (deep integration, pi users):** always-on protection via
-`transformContext` + final-message restore + `tool_call` argument blocking.
-Zero per-prompt configuration.
+**Dashboard bukan milik pi dan tidak butuh pi jalan.**
+
+**A. Launcher / proxy mode (zero-config, browser dashboard).**
+Double-click `Start-PDP-Guard.bat` → your browser opens to
+`http://127.0.0.1:11480/`:
+
+```
++----------------------------------------------------------+
+| PDP Guard — running locally                              |
+| Personal data is tokenized on this machine before any    |
+| model sees it. Works without an API key (full-local).    |
++----------------------------------------------------------+
+| STATUS                                                   |
+| Mode: local -> http://127.0.0.1:8080                     |
+| Local LLM: running (binary: present)                     |
+| Frontier key: empty (local mode)                         |
+| [Start local LLM] [Stop local LLM]                       |
++----------------------------------------------------------+
+| FRONTIER MODE (optional)                                 |
+| Empty = 100% local. Filled = sterilized requests are     |
+| forwarded to the frontier USA API.                       |
+| [https://api.openai.com/v1____] [key______] [Save]       |
++----------------------------------------------------------+
+| SESSIONS + AUDIT TRAIL                                   |
+| klinik-a | 12 tokens | 36 audits                         |
+| [klinik-a v] [View audit] [Purge this session]           |
+| {"ts":...,"stage":"fase1.steril","report":{"hits":...}}  |
++----------------------------------------------------------+
+```
+
+Use this when: you use Claude Code, Codex, Cursor, or any other agent; you
+want non-technical staff (clinic admins, DPO) to operate it; you want one
+click, not one terminal.
+
+**B. Fork mode (pi terminal TUI).** The agent looks exactly like upstream pi —
+same terminal interface — plus two extra commands:
+
+```
+> /pdp-status
+PDP audit:
+[sess-9f2] {"ts":...,"stage":"fase1.steril","report":{"hits":{"NIK":1}}}
+[sess-9f2] {"ts":...,"stage":"fase2.response","tokensRestored":1}
+
+> /pdp-purge
+Wipe project vault + audit (.pi/pdp)? [y/N]
+```
+
+Use this when: you live in the terminal and want the deepest integration
+(tool-argument blocking included, which only exists in fork mode).
+
+Rule of thumb: **dashboard for the team, TUI for the engineer.** Evidence
+(`audit.jsonl`, vault) is identical in both.
 
 **Proxy mode (any agent, v3):** OpenAI-compatible server in
 `packages/pdp-proxy`. Point Claude Code, Codex, Cursor, or any
