@@ -147,15 +147,21 @@ are built to be submitted alongside DPO attestation and counsel — and to
 make the "we did everything technically reasonable" defense a documented
 fact instead of a sentence.
 
-## Quickstart proxy (5 minutes)
+## Quickstart proxy (5 minutes, zero-config)
 
-Requirements: Node 22+, one frontier API key.
+Download the release ZIP, unzip, double-click **`Start-PDP-Guard.bat`**. Done.
+First run downloads llama.cpp + the local model automatically; later clicks
+just start everything and open the dashboard in your browser. Works fully
+without any API key (100% local mode). Manual override via **`config.json`**
+(env beats file).
+
+Requirements: Node 22+ (the launcher installs it via winget if missing).
 
 ```bash
-# 1. Configure (once per shell)
+# 1. Optional frontier config (once per shell; empty = local mode)
 export PDP_UPSTREAM_URL="https://api.openai.com/v1"
 export PDP_UPSTREAM_KEY="<frontier-key>"
-export PDP_VAULT_KEY="<long-random-passphrase-min-16-chars>"
+export PDP_VAULT_KEY="<frasa-rahasia-panjang-min-16-karakter>"
 export PDP_PROXY_PORT=11480
 
 # 2. Run the proxy (from repo root)

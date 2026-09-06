@@ -1,0 +1,12 @@
+{
+  "_komentar": "Zero-config: semua default jalan lokal tanpa frontier key. Isi upstreamUrl+upstreamKey untuk mode frontier. File ini boleh diedit manual. Prioritas: env > user config (%APPDATA%/pdp-guard atau ~/.config/pdp-guard) > file ini.",
+  "upstreamUrl": "",
+  "upstreamKey": "",
+  "proxyPort": 11480,
+  "llmUrl": "http://127.0.0.1:8080",
+  "llmModel": "qwen2.5-3b-instruct-q4_k_m",
+  "modelsDir": "",
+  "vaultKey": "",
+  "strict": false,
+  "retentionDays": 30
+}
