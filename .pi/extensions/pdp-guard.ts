@@ -1,9 +1,12 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
-// PDP-Guard v1: redaksi data pribadi Indonesia SEBELUM request keluar ke provider.
-// Hook: before_provider_request (return payload pengganti; undefined = teruskan asli).
-// Pola selaras dengan oracle Python: repo indonesia-coding-agent-pro-uupdp, pdp_guard/redactor.py.
-// Catatan jujur: v1 = regex pre-pass lokal. Klasifier LLM lokal via llama.cpp router = fase 2.
+// PDP-Guard: jaring pengaman kedua + monitor. Fase 1 (sterilisasi token) dan
+// fase 2 (kembalikan PII) berjalan di core: packages/agent/src/harness/pdp/,
+// dikabel di sdk.ts transformContext dan assistant.ts pesan final.
+// Extension ini: (1) jaring kedua di before_provider_request bila core
+// dilewati (PDP_GUARD=0), (2) /pdp-status baca audit, (3) /pdp-purge hapus vault+log.
 
 const TOKEN = "[REDACTED]";
 
@@ -12,9 +15,6 @@ const PATTERNS: Array<{ label: string; rx: RegExp }> = [
   { label: "PHONE_ID", rx: /\b(?:\+62|62|0)8\d{8,11}\b/g },
   { label: "EMAIL", rx: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
 ];
-
-const SPECIFIC_HINT =
-  /(diagnosa|rekam medis|penyakit|biometrik|sidik jari|wajah|dna|genetika|pidana|kejahatan|anak|rekening|saldo|gaji|pinjaman)/i;
 
 type Hits = Record<string, number>;
 
@@ -29,19 +29,7 @@ function redactString(s: string, hits: Hits): string {
     });
     if (n > 0) hits[label] = (hits[label] ?? 0) + n;
   }
-  if (SPECIFIC_HINT.test(out)) hits["SPECIFIC_HINT"] = 1;
   return out;
-}
-
-function redactContent(content: unknown, hits: Hits): unknown {
-  if (typeof content === "string") return redactString(content, hits);
-  if (Array.isArray(content))
-    return content.map((p) =>
-      p && typeof p === "object" && typeof (p as Record<string, unknown>)["text"] === "string"
-        ? { ...(p as Record<string, unknown>), text: redactString((p as Record<string, unknown>)["text"] as string, hits) }
-        : p,
-    );
-  return content;
 }
 
 function redactPayload(payload: unknown): { payload: unknown; hits: Hits } {
@@ -53,34 +41,59 @@ function redactPayload(payload: unknown): { payload: unknown; hits: Hits } {
     next["messages"] = (next["messages"] as unknown[]).map((m) => {
       if (!m || typeof m !== "object") return m;
       const msg = m as Record<string, unknown>;
-      if ("content" in msg) return { ...msg, content: redactContent(msg["content"], hits) };
+      if (typeof msg["content"] === "string")
+        return { ...msg, content: redactString(msg["content"] as string, hits) };
       return m;
     });
   return { payload: next, hits };
 }
 
-export default function (pi: ExtensionAPI) {
-  let total = 0;
-  let last: Hits = {};
+function pdpDir(cwd: string): string {
+  return process.env["PDP_DIR"] ?? join(cwd, ".pi", "pdp");
+}
 
+function auditTail(cwd: string, n: number): string[] {
+  try {
+    const f = join(pdpDir(cwd), "audit.jsonl");
+    if (!existsSync(f)) return [];
+    return readFileSync(f, "utf8").trim().split("\n").slice(-n);
+  } catch {
+    return [];
+  }
+}
+
+export default function (pi: ExtensionAPI) {
   pi.on("before_provider_request", async (event: any, ctx: any) => {
     const { payload, hits } = redactPayload(event?.payload);
-    const n = Object.values(hits).reduce<number>((a, b) => a + (typeof b === "number" ? b : 0), 0);
+    const n = Object.values(hits).reduce<number>((a, b) => a + b, 0);
     if (n === 0) return undefined;
-    total += n;
-    last = hits;
-    ctx.ui.notify(
-      `PDP-Guard: ${n} data pribadi disamarkan (${Object.keys(hits).join(", ")})`,
-      "warning",
-    );
-    pi.appendEntry("pdp-guard", { ts: Date.now(), action: "redact_before_send", hits });
+    ctx.ui.notify(`PDP-Guard (jaring kedua): ${n} pola PII disamarkan`, "warning");
+    pi.appendEntry("pdp-guard", { ts: Date.now(), action: "redact_fallback", hits });
     return payload;
   });
 
   pi.registerCommand("pdp-status", {
-    description: "Tampilkan statistik redaksi PDP-Guard sesi ini (UU PDP 27/2022)",
+    description: "Tampilkan 5 baris audit PDP terakhir (UU PDP 27/2022)",
     handler: async (_args: any, ctx: any) => {
-      ctx.ui.notify(`PDP-Guard sesi ini: ${total} redaksi. Terakhir: ${JSON.stringify(last)}`, "info");
+      const lines = auditTail(ctx.cwd as string, 5);
+      ctx.ui.notify(
+        lines.length === 0 ? "PDP: belum ada audit sesi ini." : `PDP audit:\n${lines.join("\n")}`,
+        "info",
+      );
+    },
+  });
+
+  pi.registerCommand("pdp-purge", {
+    description: "Hapus vault token + log audit PDP proyek ini (hak hapus UU PDP)",
+    handler: async (_args: any, ctx: any) => {
+      const ok = await ctx.ui.confirm("PDP purge", "Hapus vault + audit .pi/pdp proyek ini?");
+      if (!ok) return;
+      try {
+        rmSync(pdpDir(ctx.cwd as string), { recursive: true, force: true });
+        ctx.ui.notify("PDP: vault + audit dihapus.", "info");
+      } catch (err) {
+        ctx.ui.notify(`PDP purge gagal: ${err instanceof Error ? err.message : String(err)}`, "error");
+      }
     },
   });
 }

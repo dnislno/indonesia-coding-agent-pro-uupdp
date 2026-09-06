@@ -14,6 +14,7 @@ import { type Context, getTelemetryContext } from "../context.ts";
 import type { SettledAssistantMessage } from "../session/types.ts";
 import type { AgentHarnessStreamOptions } from "../types.ts";
 import { AbortRequested } from "./effect-gate.ts";
+import { pdpFase2Restore } from "../pdp/index.ts";
 
 /** HTTP response metadata captured before the provider response body is consumed. */
 export interface AssistantResponseMetadata {
@@ -128,6 +129,9 @@ export async function consumeAssistantStream(
 			await error.cancellation;
 		}
 	}
+	// PDP-ID fase 2: kembalikan token PII jadi nilai asli. Satu-satunya edit di file ini.
+	finalMessage = pdpFase2Restore(finalMessage) as typeof finalMessage;
+
 	await observer.end(finalMessage, context);
 	return finalMessage;
 }

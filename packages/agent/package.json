@@ -30,6 +30,10 @@
 			"types": "./dist/harness/session/index.d.ts",
 			"import": "./dist/harness/session/index.js"
 		},
+		"./harness/pdp": {
+			"types": "./dist/harness/pdp/index.d.ts",
+			"import": "./dist/harness/pdp/index.js"
+		},
 		"./harness/session/testing": {
 			"types": "./dist/harness/session/testing/index.d.ts",
 			"import": "./dist/harness/session/testing/index.js"

@@ -9,6 +9,7 @@ import { DEFAULT_THINKING_LEVEL } from "./defaults.ts";
 import type { ExtensionRunner, LoadExtensionsResult, SessionStartEvent, ToolDefinition } from "./extensions/index.ts";
 import { convertToLlm } from "./messages.ts";
 import { findInitialModel } from "./model-resolver.ts";
+import { pdpFase1Sterilize, resolvePdpDir } from "@earendil-works/pi-agent-core/harness/pdp";
 import { ModelRuntime } from "./model-runtime.ts";
 import { mergeProviderAttributionHeaders } from "./provider-attribution.ts";
 import type { ResourceLoader } from "./resource-loader.ts";
@@ -360,9 +361,11 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		},
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
+			// PDP-ID fase 1: sterilkan sebelum ke extension/provider. Satu-satunya edit di file ini.
+			const { messages: steril } = await pdpFase1Sterilize(messages, resolvePdpDir(cwd));
 			const runner = extensionRunnerRef.current;
-			if (!runner) return messages;
-			return runner.emitContext(messages);
+			if (!runner) return steril as typeof messages;
+			return runner.emitContext(steril as typeof messages);
 		},
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),
