@@ -88,6 +88,65 @@ the request (fail-closed + `proxy.blocked` audit). 100% shared PDP core.
 * **In-country filtering**: regex + optional local LLM (llama.cpp) run on
   your hardware. No third-country sub-processor added to your data map.
 
+## WITHOUT vs WITH: the exact same request
+
+Without this layer, a developer debugging a patient query sends this to a
+frontier API — and nothing records it:
+
+```json
+// What leaves the machine WITHOUT the guardrail (forensic nightmare)
+{ "role": "user", "content": "fix query WHERE nik='3174051209900001' AND hp='081234567890'" }
+// Logs: none. Evidence of minimization: none. Lawsuit defense: "trust us."
+```
+
+With this layer, the provider receives only this — while the machine keeps
+everything needed to prove compliance:
+
+```json
+// What leaves the machine WITH the guardrail (tokens only)
+{ "role": "user", "content": "fix query WHERE nik='__PDP_NIK_1__' AND hp='__PDP_PHONE_ID_1__'" }
+```
+
+And the local audit trail captures the full chain (real format, values
+trimmed here for this doc):
+
+```json
+{"ts":1788651011.89,"stage":"fase1.input","nMessages":1,"text":"fix query WHERE nik='3174051209900001'..."}
+{"ts":1788651011.90,"stage":"fase1.steril","report":{"hits":{"NIK":1,"PHONE_ID":1},"tokens":2,"llmUsed":false}}
+{"ts":1788651012.41,"stage":"fase2.response","tokensRestored":2}
+```
+
+The user still gets the working answer with real values restored. The
+provider never saw them. That delta — provable, per request — is the product.
+
+## Why these logs stand as audit evidence
+
+Regulators and courts do not accept vibes; they accept records with five
+properties. Each is engineered in, not claimed:
+
+1. **Completeness** — every outbound request passes fase 1; no bypass path
+   exists in fork mode (transformContext sits on the single send path) and
+   proxy mode fails closed on any fase-1 error.
+2. **Tamper-evidence by design** — append-only JSONL; retention sweeps and
+   purges write their own audit entries (`retention.sweep`), so deletion
+   itself is on record. No silent edits possible without leaving a timestamp
+   gap an auditor can spot.
+3. **Causality** — stamps are ordered per request
+   (`input -> steril -> response`), each carrying the token counts that link
+   them. Any byte sent out resolves to exactly one sterilization record.
+4. **Proportionality mapping** — reports record data categories (NIK vs
+   SPECIFIC_HINT vs LLM spans), precisely the weighting input PP Art. 185
+   demands for fine calibration. This turns the log from cost center into
+   leverage.
+5. **Custody** — filtering and vault stay on operator hardware in Indonesia;
+   no third-country sub-processor enters the data map.
+
+Honest boundary, stated the way a regulator would want it: these logs prove
+**maximum implementation effort per request**, not perfect detection. They
+are built to be submitted alongside DPO attestation and counsel — and to
+make the "we did everything technically reasonable" defense a documented
+fact instead of a sentence.
+
 ## Quickstart proxy (5 minutes)
 
 Requirements: Node 22+, one frontier API key.

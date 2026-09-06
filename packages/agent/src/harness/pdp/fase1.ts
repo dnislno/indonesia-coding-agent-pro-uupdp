@@ -219,6 +219,9 @@ export async function pdpFase1Sterilize(
 		});
 
 		let out = messages.map((m) => sterilizeOneMessage(m, d, hits));
+		const originalAll = messages
+			.map((m) => collectText((m as Record<string, unknown>)?.["content"] ?? ""))
+			.join("\n");
 
 	 const llmUrl = process.env["PDP_LLM_URL"];
 		const llmModel = process.env["PDP_LLM_MODEL"] ?? "local-pii-8b";
@@ -262,7 +265,11 @@ export async function pdpFase1Sterilize(
 			}
 		}
 
-		const sample = collectText(((out[out.length - 1] ?? {}) as Record<string, unknown>)["content"] ?? "");
+		// SPECIFIC_HINT dinilai dari teks ORIGINAL (sebelum tokenisasi),
+		// agar mode STRICT tidak menghapus jejak kategorinya dari laporan.
+		const sample = `${originalAll}\n${out
+			.map((m) => collectText((m as Record<string, unknown>)?.["content"] ?? ""))
+			.join("\n")}`;
 		const report: Fase1Report = {
 			hits,
 			tokens: Object.values(hits).reduce((a, b) => a + b, 0),

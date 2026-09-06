@@ -33,17 +33,30 @@ function redactString(s: string, hits: Hits): string {
   return out;
 }
 
+function redactContent(content: unknown, hits: Hits): unknown {
+  if (typeof content === "string") return redactString(content, hits);
+  // Provider payloads (Anthropic blocks, OpenAI parts) carry arrays.
+  if (Array.isArray(content))
+    return content.map((p) =>
+      p && typeof p === "object" && typeof (p as Record<string, unknown>)["text"] === "string"
+        ? { ...(p as Record<string, unknown>), text: redactString((p as Record<string, unknown>)["text"] as string, hits) }
+        : p,
+    );
+  return content;
+}
+
 function redactPayload(payload: unknown): { payload: unknown; hits: Hits } {
   const hits: Hits = {};
   if (!payload || typeof payload !== "object") return { payload, hits };
   const next: Record<string, unknown> = { ...(payload as Record<string, unknown>) };
   if (typeof next["system"] === "string") next["system"] = redactString(next["system"] as string, hits);
+  if (Array.isArray(next["system"]))
+    next["system"] = redactContent(next["system"], hits);
   if (Array.isArray(next["messages"]))
     next["messages"] = (next["messages"] as unknown[]).map((m) => {
       if (!m || typeof m !== "object") return m;
       const msg = m as Record<string, unknown>;
-      if (typeof msg["content"] === "string")
-        return { ...msg, content: redactString(msg["content"] as string, hits) };
+      if ("content" in msg) return { ...msg, content: redactContent(msg["content"], hits) };
       return m;
     });
   return { payload: next, hits };

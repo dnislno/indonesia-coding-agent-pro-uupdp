@@ -17,9 +17,15 @@ esac
 mkdir -p "$HERE/llama-bin" "$HOME/models"
 URL="https://github.com/ggml-org/llama.cpp/releases/download/${BUILD}/${ASSET}"
 echo "-> unduh $ASSET"
-curl -sSL -o "$HERE/llama-bin/pkg" "$URL"
+curl -sSL --retry 3 -o "$HERE/llama-bin/pkg" "$URL"
 case "$ASSET" in
-  *.zip) (cd "$HERE/llama-bin" && unzip -o -q pkg) ;;
+  *.zip)
+    if command -v unzip >/dev/null 2>&1; then
+      (cd "$HERE/llama-bin" && unzip -o -q pkg)
+    else
+      # Git-bash Windows tanpa unzip: bsdtar bisa buka zip.
+      tar -xf "$HERE/llama-bin/pkg" -C "$HERE/llama-bin"
+    fi ;;
   *.tar.gz) tar -xzf "$HERE/llama-bin/pkg" -C "$HERE/llama-bin" ;;
 esac
 rm -f "$HERE/llama-bin/pkg"
