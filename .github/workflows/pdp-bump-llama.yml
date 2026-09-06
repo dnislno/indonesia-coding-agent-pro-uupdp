@@ -1,0 +1,45 @@
+name: pdp-bump-llama
+
+# Pantau release build llama.cpp (tag bNNNNN). Kalau beda dari pdp/LLAMA_PIN,
+# buka PR bump otomatis. Tiap hari + manual.
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check latest llama.cpp build
+        id: check
+        run: |
+          LATEST=$(curl -s "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20" \
+            | python -c "import sys,json; print(next(r['tag_name'] for r in json.load(sys.stdin) if r['tag_name'].startswith('b')))")
+          PIN=$(head -1 pdp/LLAMA_PIN)
+          echo "latest=$LATEST pin=$PIN"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "stale=$([ "$LATEST" != "$PIN" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Open bump PR
+        if: steps.check.outputs.stale == 'true'
+        run: |
+          LATEST="${{ steps.check.outputs.latest }}"
+          BR="pdp/llama-$LATEST"
+          echo "$LATEST" > pdp/LLAMA_PIN
+          git config user.name "pdp-sync-bot"
+          git config user.email "pdp-sync-bot@users.noreply.github.com"
+          git checkout -b "$BR"
+          git add pdp/LLAMA_PIN
+          git commit -m "llama.cpp pin -> $LATEST"
+          git push origin "$BR"
+          gh pr create --title "llama.cpp pin -> $LATEST" \
+            --body "Bump otomatis. Unduh binary per OS di https://github.com/ggml-org/llama.cpp/releases/tag/$LATEST" \
+            --base main --head "$BR"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
