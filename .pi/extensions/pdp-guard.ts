@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 // PDP-Guard: jaring pengaman kedua + monitor. Fase 1 (sterilisasi token) dan
@@ -53,13 +53,27 @@ function pdpDir(cwd: string): string {
 }
 
 function auditTail(cwd: string, n: number): string[] {
+  // Agregat: audit basis + tiap sesi (isolasi per sesi, lihat resolveSessionDir).
+  const out: string[] = [];
   try {
-    const f = join(pdpDir(cwd), "audit.jsonl");
-    if (!existsSync(f)) return [];
-    return readFileSync(f, "utf8").trim().split("\n").slice(-n);
+    const base = pdpDir(cwd);
+    const files: Array<{ f: string; tag: string }> = [{ f: join(base, "audit.jsonl"), tag: "base" }];
+    try {
+      const sdir = join(base, "sessions");
+      for (const s of readdirSync(sdir)) files.push({ f: join(sdir, s, "audit.jsonl"), tag: s });
+    } catch {
+      /* belum ada sesi */
+    }
+    for (const { f, tag } of files) {
+      if (!existsSync(f)) continue;
+      for (const l of readFileSync(f, "utf8").trim().split("\n").slice(-n)) {
+        if (l.trim()) out.push(`[${tag}] ${l}`);
+      }
+    }
   } catch {
-    return [];
+    /* abaikan */
   }
+  return out.slice(-n);
 }
 
 export default function (pi: ExtensionAPI) {

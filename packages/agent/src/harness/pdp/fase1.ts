@@ -190,19 +190,24 @@ function sterilizeOneMessage(msg: unknown, dir: string, hits: Record<string, num
 
 /**
  * FASE 1. messages = AgentMessage[] (defensif: bentuk lain diteruskan).
- * Tahap 1: audit fase1.input (teks penuh + timestamp).
- * Tahap 2: regex -> token, lalu LLM lokal bila PDP_LLM_URL diset -> token.
- * Audit fase1.steril sebagai bukti. Kembalikan pesan steril + laporan.
+ * Tahap 0: sapu retensi. Tahap 1: audit fase1.input (teks penuh + timestamp).
+ * Tahap 2: alias -> NIK separator -> regex -> token, lalu LLM lokal bila
+ * PDP_LLM_URL diset -> token. Audit fase1.steril sebagai bukti.
+ * opts.sessionId mengisolasi vault per sesi + diekspor via PDP_ACTIVE_DIR
+ * agar fase 2 menemukan vault yang sama. Kembalikan pesan steril + laporan + dir.
  */
 export async function pdpFase1Sterilize(
 	messages: unknown,
 	dir?: string,
-): Promise<{ messages: unknown; report: Fase1Report }> {
+	opts?: { sessionId?: string },
+): Promise<{ messages: unknown; report: Fase1Report; dir: string }> {
 	const empty: Fase1Report = { hits: {}, tokens: 0, specificHint: false, llmUsed: false, llmExtra: 0 };
+	const base = resolvePdpDir(dir);
 	try {
-		if (process.env["PDP_GUARD"] === "0") return { messages, report: empty };
-		if (!Array.isArray(messages)) return { messages, report: empty };
-		const d = resolvePdpDir(dir);
+		if (process.env["PDP_GUARD"] === "0") return { messages, report: empty, dir: base };
+		if (!Array.isArray(messages)) return { messages, report: empty, dir: base };
+		const d = resolveSessionDir(base, opts?.sessionId);
+		process.env["PDP_ACTIVE_DIR"] = d;
 		const hits: Record<string, number> = {};
 		const sweep = pdpRetentionSweep(d);
 
@@ -265,13 +270,13 @@ export async function pdpFase1Sterilize(
 		};
 		if (report.specificHint) hits["SPECIFIC_HINT"] = 1;
 		pdpAudit(d, "fase1.steril", { report });
-		return { messages: out, report };
+		return { messages: out, report, dir: d };
 	} catch (err) {
 		try {
 			pdpAudit(resolvePdpDir(dir), "fase1.error", { error: err instanceof Error ? err.message : String(err) });
 		} catch {
 			/* abaikan */
 		}
-		return { messages, report: empty };
+		return { messages, report: empty, dir: base };
 	}
 }

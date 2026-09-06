@@ -34,7 +34,8 @@ export function pdpFase2Restore(message: unknown, dir?: string): unknown {
 	try {
 		if (process.env["PDP_GUARD"] === "0") return message;
 		if (!message || typeof message !== "object") return message;
-		const d = resolvePdpDir(dir);
+		// Vault sesi aktif diekspor fase 1; fallback direktori eksplisit/default.
+		const d = resolvePdpDir(dir ?? process.env["PDP_ACTIVE_DIR"]);
 		const m = message as Record<string, unknown>;
 		if (!("content" in m)) return message;
 		const counter = { n: 0 };

@@ -11,7 +11,8 @@ dikembalikan utuh saat respons tiba.
 INPUT dev:  "betulkan query WHERE nik='3174051209900001'"
    |  stempel 1: fase1.input (teks + timestamp -> audit.jsonl)
    v
-FASE 1 (lokal): NIK/HP/email -> __PDP_NIK_1__ (vault .pi/pdp/vault.json)
+FASE 1 (lokal): NIK/HP/email -> __PDP_NIK_1__ (vault sesi
+`<cwd>/.pi/pdp/sessions/<id>/vault.json`, terisolasi per sesi)
    |  stempel 2: fase1.steril (hits + timestamp -> audit.jsonl) = bukti patuh
    v
 yang dikirim ke frontier USA: "betulkan query WHERE nik='__PDP_NIK_1__'"
@@ -99,13 +100,16 @@ Env:
 * `PDP_RETENTION_DAYS` batas simpan vault + audit hari (default `30`, `0` = nonaktif)
 * `PDP_STRICT=1` tokenisasi kalimat Tier 2 utuh (default `0` = hanya tandai)
 * `PDP_VAULT_KEY` frasa kunci enkripsi vault AES-256-GCM (wajib produksi)
+* `PDP_SESSIONS=0` nonaktifkan isolasi vault per sesi (default aktif)
 
 Perintah dalam agent: `/pdp-status` (5 baris audit terakhir), `/pdp-purge`
 (hapus vault + log = hak hapus UU PDP).
 
 ## Instalasi
 
-1. Ambil binary llama.cpp sesuai OS (pin saat ini: `pdp/LLAMA_PIN`):
+Cara cepat: `bash pdp/setup-llama.sh` (Windows git-bash, Linux, macOS) —
+mengunduh binary sesuai OS + model Qwen2.5-3B dan mencetak perintah router.
+Atau manual:
    * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
    * Windows x64 CPU saja: `llama-<build>-bin-win-cpu-x64.zip`
    * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
@@ -156,7 +160,8 @@ Sisanya 100% upstream.
 4. Argumen tool yang mengandung pola PII ditolak mentah (`tool_call` block).
    Tertutup sejak P0.
 5. Gambar, file biner, dan `systemPrompt` tidak dipindai.
-6. Satu direktori vault per proyek; server multi-user butuh isolasi per sesi.
+6. Vault terisolasi per sesi (`sessions/<id>/`, default aktif).
+   Server multi-proses dalam satu sesi OS masih berbagi via `PDP_ACTIVE_DIR`.
 7. Tanpa `PDP_LLM_URL`, nama/alamat bebas pola lolos.
 
 ## Dasar hukum (ringkas, per Sep 2026)

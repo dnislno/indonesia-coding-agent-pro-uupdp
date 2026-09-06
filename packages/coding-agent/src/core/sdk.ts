@@ -362,7 +362,9 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		sessionId: sessionManager.getSessionId(),
 		transformContext: async (messages) => {
 			// PDP-ID fase 1: sterilkan sebelum ke extension/provider. Satu-satunya edit di file ini.
-			const { messages: steril } = await pdpFase1Sterilize(messages, resolvePdpDir(cwd));
+			const { messages: steril } = await pdpFase1Sterilize(messages, resolvePdpDir(cwd), {
+				sessionId: sessionManager.getSessionId(),
+			});
 			const runner = extensionRunnerRef.current;
 			if (!runner) return steril as typeof messages;
 			return runner.emitContext(steril as typeof messages);

@@ -68,6 +68,18 @@ function vaultPath(dir: string): string {
 	return join(dir, "vault.json");
 }
 
+/**
+ * Isolasi sesi: vault+audit tiap sesi di <base>/sessions/<id>/.
+ * Default AKTIF (PDP_SESSIONS=0 menonaktifkan). ID disanitasi.
+ */
+export function resolveSessionDir(base: string, sessionId?: string): string {
+	if (process.env["PDP_SESSIONS"] === "0" || !sessionId) return base;
+	const safe = sessionId.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64) || "default";
+	const d = join(base, "sessions", safe);
+	mkdirSync(d, { recursive: true });
+	return d;
+}
+
 function auditPath(dir: string): string {
 	return join(dir, "audit.jsonl");
 }
