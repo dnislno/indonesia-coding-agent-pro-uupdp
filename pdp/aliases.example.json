@@ -1,0 +1,5 @@
+{
+  "_komentar": "Salin ke .pi/pdp/aliases.json di direktori proyek. Key = teks yang selalu ditokenisasi, value = label token.",
+  "Budi Santoso": "NAMA",
+  "Jl. Merdeka No. 45": "ALAMAT"
+}

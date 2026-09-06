@@ -47,9 +47,11 @@ identifier tunggal/kombinasi yang mengidentifikasi).
 
 ## Scope aplikasi: 3 tier, tegas
 
-**Tier 1 — ditokenisasi otomatis (tidak pernah keluar):** NIK 16 digit,
-nomor HP Indonesia, email. Aktif selalu, tanpa LLM. Nama orang dan alamat
-menyusul otomatis bila `PDP_LLM_URL` diset (klasifier lokal).
+**Tier 1 — ditokenisasi otomatis (tidak pernah keluar):** NIK 16 digit
+(rapat maupun berspasi/strip/titik), nomor HP Indonesia, email, plus
+daftar pantau proyek (`.pi/pdp/aliases.json`, contoh di
+`pdp/aliases.example.json`). Aktif selalu, tanpa LLM. Nama orang dan alamat
+lain menyusul otomatis bila `PDP_LLM_URL` diset (klasifier lokal).
 
 **Tier 2 — ditandai, belum ditokenisasi:** kesehatan, biometrik, genetika,
 catatan kejahatan, data anak, keuangan pribadi. Kata pemicunya
@@ -96,6 +98,7 @@ Env:
 * `PDP_LLM_MODEL` nama model di router (default `local-pii-8b`)
 * `PDP_RETENTION_DAYS` batas simpan vault + audit hari (default `30`, `0` = nonaktif)
 * `PDP_STRICT=1` tokenisasi kalimat Tier 2 utuh (default `0` = hanya tandai)
+* `PDP_VAULT_KEY` frasa kunci enkripsi vault AES-256-GCM (wajib produksi)
 
 Perintah dalam agent: `/pdp-status` (5 baris audit terakhir), `/pdp-purge`
 (hapus vault + log = hak hapus UU PDP).
@@ -146,8 +149,10 @@ Sisanya 100% upstream.
 ## Batasan (dibaca sebelum klaim patuh)
 
 1. Tier 2 default hanya ditandai; sensor penuh butuh `PDP_STRICT=1`.
-2. Filter bisa lolos: nama samaran, typo NIK, NIK terpotong spasi.
-3. `vault.json` plain: enkripsi AES sebelum produksi sungguhan.
+2. Filter bisa lolos: nama samaran, typo NIK. NIK berspasi/strip dan
+   daftar pantau tertutup sejak P1.
+3. `vault.json` terenkripsi AES-256-GCM bila `PDP_VAULT_KEY` diset
+   (wajib produksi). Tanpa kunci = plain + peringatan. Tertutup sejak P1.
 4. Argumen tool yang mengandung pola PII ditolak mentah (`tool_call` block).
    Tertutup sejak P0.
 5. Gambar, file biner, dan `systemPrompt` tidak dipindai.

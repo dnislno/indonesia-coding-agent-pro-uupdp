@@ -3,12 +3,59 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { createDecipheriv, createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { makeToken } from "./patterns.ts";
 
 export interface VaultEntry {
 	label: string;
-	value: string;
+	value: StoredValue;
 	ts: number;
+}
+
+/**
+ * Enkripsi vault (AES-256-GCM). Kunci dari env PDP_VAULT_KEY (frasa bebas,
+ * diturunkan via scrypt). Tanpa env = plain + peringatan sekali per proses.
+ */
+type StoredValue = string | { v: 1; iv: string; ct: string };
+
+let warnedPlain = false;
+
+function vaultKey(): Buffer | null {
+	const k = process.env["PDP_VAULT_KEY"];
+	if (!k) return null;
+	return scryptSync(k, "pdp-id-v1", 32);
+}
+
+function seal(plain: string): StoredValue {
+	const key = vaultKey();
+	if (!key) {
+		if (!warnedPlain) {
+			warnedPlain = true;
+			console.error("[pdp] PDP_VAULT_KEY kosong: vault tersimpan plain. Set untuk produksi.");
+		}
+		return plain;
+	}
+	const iv = randomBytes(12);
+	const c = createCipheriv("aes-256-gcm", key, iv);
+	const ct = Buffer.concat([c.update(plain, "utf8"), c.final(), c.getAuthTag()]);
+	return { v: 1, iv: iv.toString("base64"), ct: ct.toString("base64") };
+}
+
+function open(stored: StoredValue): string | undefined {
+	if (typeof stored === "string") return stored;
+	try {
+		const key = vaultKey();
+		if (!key || stored.v !== 1) return undefined;
+		const iv = Buffer.from(stored.iv, "base64");
+		const raw = Buffer.from(stored.ct, "base64");
+		const tag = raw.subarray(raw.length - 16);
+		const data = raw.subarray(0, raw.length - 16);
+		const d = createDecipheriv("aes-256-gcm", key, iv);
+		d.setAuthTag(tag);
+		return Buffer.concat([d.update(data), d.final()]).toString("utf8");
+	} catch {
+		return undefined;
+	}
 }
 
 export function resolvePdpDir(explicit?: string): string {
@@ -49,23 +96,25 @@ function writeVault(
 	}
 }
 
-/** Simpan nilai asli, kembalikan token. Idempoten per (label, value). */
+/** Simpan nilai asli (terenkripsi bila PDP_VAULT_KEY diset), kembalikan token. Idempoten. */
 export function vaultPut(dir: string, label: string, value: string): string {
 	const v = readVault(dir);
 	for (const [tok, e] of Object.entries(v.tokens)) {
-		if (e.label === label && e.value === value) return tok;
+		if (e.label === label && open(e.value) === value) return tok;
 	}
 	const n = (v.seq[label] ?? 0) + 1;
 	v.seq[label] = n;
 	const tok = makeToken(label, n);
-	v.tokens[tok] = { label, value, ts: Date.now() };
+	v.tokens[tok] = { label, value: seal(value), ts: Date.now() };
 	writeVault(dir, v);
 	return tok;
 }
 
-/** Kembalikan nilai asli untuk token, atau undefined bila tak dikenal. */
+/** Kembalikan nilai asli untuk token, atau undefined bila tak dikenal / kunci salah. */
 export function vaultGet(dir: string, token: string): string | undefined {
-	return readVault(dir).tokens[token]?.value;
+	const e = readVault(dir).tokens[token];
+	if (!e) return undefined;
+	return open(e.value);
 }
 
 /** Batas simpan hari (env PDP_RETENTION_DAYS, default 30, 0 = nonaktif). */

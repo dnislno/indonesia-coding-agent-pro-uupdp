@@ -4,6 +4,8 @@
 
 import { PII_PATTERNS, SPECIFIC_HINT } from "./patterns.ts";
 import { pdpAudit, pdpRetentionSweep, resolvePdpDir, vaultPut } from "./store.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /**
  * PDP_STRICT=1: kalimat berisi kata pemicu data spesifik ditokenisasi utuh.
@@ -27,9 +29,65 @@ export interface Fase1Report {
 	llmExtra: number;
 }
 
+/** 16 digit ber-separator (spasi/titik/strip): "3174 0512 0990 0001". */
+const NIK_SEP_RX = /\b\d(?:[\s.\-]*\d){15}\b/g;
+
+function escapeRx(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface Alias {
+	label: string;
+	value: string;
+}
+
+/**
+ * Daftar pantau proyek: <dir>/aliases.json
+ * {"Budi Santoso": "NAMA"} atau ["Budi Santoso"] (default label NAMA).
+ */
+function loadAliases(dir: string): Alias[] {
+	try {
+		const f = join(dir, "aliases.json");
+		if (!existsSync(f)) return [];
+		const raw = JSON.parse(readFileSync(f, "utf8")) as unknown;
+		const list: Alias[] = [];
+		if (Array.isArray(raw)) {
+			for (const v of raw) if (typeof v === "string" && v.trim()) list.push({ label: "NAMA", value: v });
+		} else if (raw && typeof raw === "object") {
+			for (const [value, label] of Object.entries(raw as Record<string, unknown>)) {
+				if (typeof label === "string" && value.trim()) list.push({ label: label.toUpperCase().slice(0, 24), value });
+			}
+		}
+		return list
+			.filter((a) => a.value.length > 2)
+			.sort((a, b) => b.value.length - a.value.length);
+	} catch {
+		return [];
+	}
+}
+
+function applyAliases(text: string, dir: string, hits: Record<string, number>): string {
+	let out = text;
+	for (const a of loadAliases(dir)) {
+		const rx = new RegExp(escapeRx(a.value), "gi");
+		let n = 0;
+		out = out.replace(rx, () => {
+			n++;
+			return vaultPut(dir, a.label, a.value);
+		});
+		if (n > 0) hits[`ALIAS_${a.label}`] = (hits[`ALIAS_${a.label}`] ?? 0) + n;
+	}
+	return out;
+}
+
 /** Ganti PII berpola dengan token vault. Kembalikan teks steril + jumlah. */
 export function sterilizeText(text: string, dir: string, hits: Record<string, number>): string {
-	let out = text;
+	let out = applyAliases(text, dir, hits);
+	NIK_SEP_RX.lastIndex = 0;
+	out = out.replace(NIK_SEP_RX, (m) => {
+		hits["NIK_SEP"] = (hits["NIK_SEP"] ?? 0) + 1;
+		return vaultPut(dir, "NIK", m);
+	});
 	for (const { label, rx } of PII_PATTERNS) {
 		rx.lastIndex = 0;
 		out = out.replace(rx, (m) => {
