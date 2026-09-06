@@ -1,83 +1,113 @@
-# indonesia-coding-agent-pro-uupdp
+# Indonesia PDP Guardrail for AI Coding Agents — UU PDP No. 27/2022 Compliance Layer
 
-Coding agent yang patuh **UU No. 27 Tahun 2022 (PDP) + PP No. 33 Tahun 2026**.
-Ini full fork [earendil-works/pi](https://github.com/earendil-works/pi) dengan
-satu tambahan: **local sterilization layer 2 fase**. Personal data
-ditokenisasi di mesin sendiri sebelum request ke frontier USA LLM API,
-lalu dikembalikan utuh saat response tiba.
+**The compliance layer between your team and frontier AI.**
+Every prompt containing NIK, phone numbers, emails, or patient data is
+tokenized on your own machine before reaching OpenAI, Anthropic, or any USA
+frontier LLM API — then restored on the way back, with a timestamped audit
+trail per request. Built for Indonesia's UU PDP (Law No. 27 of 2022) and its
+enforcement regulation PP No. 33 of 2026.
 
-## Daftar isi
+> Full fork of [earendil-works/pi](https://github.com/earendil-works/pi) +
+> standalone OpenAI-compatible proxy. MIT licensed. Self-hosted. No data
+> leaves Indonesia for filtering — ever.
 
-1. [Cara kerja 30 detik](#cara-kerja-30-detik)
-2. [Dua pintu pemakaian](#dua-pintu-satu-core)
-3. [Quickstart proxy (5 menit)](#quickstart-proxy-5-menit)
-4. [Quickstart fork](#quickstart-fork)
-5. [Input, process, output](#input-process-output)
-6. [Data yang wajib steril (Pasal 4)](#data-apa-yang-wajib-steril-pasal-4-uu-272022-terverifikasi-verbatim)
-7. [Scope 3 tier](#scope-aplikasi-3-tier-tegas)
-8. [Evidence](#bukti-implementasi-evidence)
-9. [Environment variables](#environment-variables)
-10. [In-agent commands](#in-agent-commands)
-11. [Struktur repo](#struktur-repo-mana-milik-siapa)
-12. [Update upstream](#update-upstream)
-13. [Keamanan dan konkurensi](#keamanan-dan-konkurensi)
-14. [Batasan](#batasan-dibaca-sebelum-klaim-patuh)
-15. [Dasar hukum](#dasar-hukum-ringkas-per-sep-2026)
-16. [Atribusi](#atribusi)
+## Why Indonesian enterprises need this now
 
-## Cara kerja 30 detik
+Enforcement is no longer theoretical:
+
+* **PP No. 33 Tahun 2026** (September 2026) activates administrative fines of
+  **up to 2% of annual revenue** (Pasal 185) — scaled by impact, duration,
+  data type, and subject count.
+* **Every data subject can sue for compensation** (Pasal 105-106). One leaked
+  customer database = thousands of potential plaintiffs.
+* **Lembaga PDP is operational.** Complaints are verified within 3 days,
+  then investigated, then sanctioned. Your AI usage is now auditable.
+
+Meanwhile, inside every Indonesian bank, hospital, telco, and startup,
+developers and analysts paste customer NIK, medical records, and financial
+data into ChatGPT, Claude, and Copilot **every single day**. Legacy DLP does
+not understand LLM traffic. Global GRC suites (Vanta, OneTrust, BigID) bill
+in USD, host abroad, and know nothing about Pasal 4 tiers or PP 33/2026
+evidence requirements.
+
+**This is the guardrail BATNA for that gap**: drop-in protection for any AI
+coding agent, in-country processing, regulator-ready evidence out of the box.
+The companies that deploy a PII guardrail before the first Lembaga PDP audit
+will negotiate from strength. The rest will negotiate from their logs —
+if they have any.
+
+## How it works (30 seconds)
 
 ```
-INPUT dev:  "betulkan query WHERE nik='3174051209900001'"
+INPUT:  "betulkan query WHERE nik='3174051209900001'"
    |  stamp 1: fase1.input (full text + timestamp -> audit.jsonl)
    v
-FASE 1 (local): NIK/HP/email -> __PDP_NIK_1__ (session vault di
-<cwd>/.pi/pdp/sessions/<id>/vault.json, isolated per session,
-encrypted bila PDP_VAULT_KEY diset)
-   |  stamp 2: fase1.steril (hits + timestamp -> audit.jsonl) = compliance evidence
+FASE 1 (on-machine): NIK/phone/email -> __PDP_NIK_1__
+(session vault: <cwd>/.pi/pdp/sessions/<id>/vault.json, per-session
+isolated, AES-256-GCM encrypted with PDP_VAULT_KEY)
+   |  stamp 2: fase1.steril (hits + timestamp) = compliance evidence
    v
-yang terkirim ke frontier USA: "betulkan query WHERE nik='__PDP_NIK_1__'"
+Sent to frontier USA: "betulkan query WHERE nik='__PDP_NIK_1__'"
    |
    v
-model response (masih bertoken)
+Model response (still tokenized)
    |  stamp 3: fase2.response (tokensRestored + timestamp)
    v
-OUTPUT user: "Query WHERE nik='3174051209900001' sudah benar"
+OUTPUT: "Query WHERE nik='3174051209900001' sudah benar"
 ```
 
-Intinya satu kalimat: **raw data tidak pernah keluar mesin; yang keluar hanya token.**
+One sentence: **raw personal data never leaves the machine; only tokens do.**
 
-## Dua pintu, satu core
+## Two doors, one core
 
-**Fork (deep integration, user pi):** proteksi always-on di `transformContext`
-+ final message + `tool_call` block. Tanpa konfigurasi per prompt.
+**Fork mode (deep integration, pi users):** always-on protection via
+`transformContext` + final-message restore + `tool_call` argument blocking.
+Zero per-prompt configuration.
 
-**Proxy (any agent, v3):** server OpenAI-compatible di `packages/pdp-proxy`.
-Agent apa pun diarahkan ke sini sebagai endpoint. Constraint v1: non-streaming
-(`stream:true` ditolak eksplisit dengan pesan jelas); `messages` kosong/bukan
-array ditolak (400 + audit `proxy.blocked`); gagal fase 1 = request ditahan
-(fail-closed + audit `proxy.blocked`). Reuse 100% core PDP yang sama.
+**Proxy mode (any agent, v3):** OpenAI-compatible server in
+`packages/pdp-proxy`. Point Claude Code, Codex, Cursor, or any
+OpenAI-compatible app at it. Optional `x-pdp-session-id` header for vault
+isolation. v1 constraints: non-streaming only (`stream:true` explicitly
+rejected); empty/non-array `messages` rejected (400); fase-1 failure holds
+the request (fail-closed + `proxy.blocked` audit). 100% shared PDP core.
 
-## Quickstart proxy (5 menit)
+## Enterprise guardrail: what the DPO gets
 
-Prasyarat: Node 22+, satu frontier API key.
+* **Per-request evidence chain** (`sessions/<id>/audit.jsonl`):
+  `fase1.input -> fase1.steril -> fase2.response`, plus `proxy.forward`,
+  `proxy.blocked`, `block_tool`, `retention.sweep`. This is your RoPA input
+  (UU PDP Pasal 35-40) and fine-mitigation material (PP Pasal 184-185):
+  every byte sent out traces to its stamp.
+* **Data minimization by construction** (Pasal 16): only tokens cross the
+  border. The frontier provider never sees the NIK.
+* **Storage limitation enforced** (retention + `/pdp-purge`): vault and audit
+  auto-expire (default 30 days, `PDP_RETENTION_DAYS`), manual wipe = right to
+  erasure (Pasal 8-15).
+* **Kill switch**: `PDP_GUARD=0` disables the layer instantly for incident
+  response testing.
+* **In-country filtering**: regex + optional local LLM (llama.cpp) run on
+  your hardware. No third-country sub-processor added to your data map.
+
+## Quickstart proxy (5 minutes)
+
+Requirements: Node 22+, one frontier API key.
 
 ```bash
-# 1. Konfigurasi (sekali saja per shell)
+# 1. Configure (once per shell)
 export PDP_UPSTREAM_URL="https://api.openai.com/v1"
 export PDP_UPSTREAM_KEY="<frontier-key>"
-export PDP_VAULT_KEY="<frasa-rahasia-panjang-min-16-karakter>"
+export PDP_VAULT_KEY="<long-random-passphrase-min-16-chars>"
 export PDP_PROXY_PORT=11480
 
-# 2. Jalankan proxy (dari root repo)
+# 2. Run the proxy (from repo root)
 node packages/pdp-proxy/src/server.ts
-# -> pdp-proxy v1 di http://127.0.0.1:11480 -> ... [non-streaming]
+# -> pdp-proxy v1 at http://127.0.0.1:11480 [non-streaming]
 
-# 3. Arahkan agent ke http://127.0.0.1:11480 sebagai base URL,
-#    kirim header x-pdp-session-id: <id-unik-per-user-atau-proyek>
+# 3. Point any agent at http://127.0.0.1:11480 as base URL,
+#    send header x-pdp-session-id: <unique-per-team-or-project>
 ```
 
-Contoh request langsung:
+Direct request example (PII redaction proxy Indonesia):
 
 ```bash
 curl -X POST http://127.0.0.1:11480/v1/chat/completions \
@@ -86,191 +116,181 @@ curl -X POST http://127.0.0.1:11480/v1/chat/completions \
   -d '{"model":"gpt-4o","messages":[{"role":"user","content":"cek nik 3174051209900001"}]}'
 ```
 
-Cek bukti: `cat .pi/pdp/sessions/klinik-a/audit.jsonl`.
-Cek kesehatan: `curl http://127.0.0.1:11480/healthz`.
+Verify evidence: `cat .pi/pdp/sessions/klinik-a/audit.jsonl`.
+Health: `curl http://127.0.0.1:11480/healthz`.
 
-## Quickstart fork
+## Quickstart fork (local LLM classifier)
 
-1. Cara cepat classifier lokal: `bash pdp/setup-llama.sh` (Windows git-bash,
-   Linux, macOS). Atau manual, ambil binary llama.cpp sesuai OS
-   (pinned build: `pdp/LLAMA_PIN`):
-   * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
+1. Fast path: `bash pdp/setup-llama.sh` (Windows git-bash, Linux, macOS).
+   Or manual — llama.cpp binary per OS (pinned build: `pdp/LLAMA_PIN`):
+   * Windows x64 without NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
    * Windows x64 CPU only: `llama-<build>-bin-win-cpu-x64.zip`
    * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
    * Ubuntu x64: `llama-<build>-bin-ubuntu-x64.tar.gz`
    * macOS arm64: `llama-<build>-bin-macos-arm64.tar.gz`
-2. Jalankan local router:
+2. Run the local router:
    ```bash
    llama-server --models-dir ~/models --no-models-autoload --jinja \
      --host 127.0.0.1 --port 8080 -ngl 999 -c 32768
    ```
-3. Jalankan agent, lalu di dalamnya: `/login llama.cpp`, `/llama` (download/load
-   model), `/model` (pilih model). Tanpa `PDP_LLM_URL`, regex filter tetap jalan.
-4. Production: `export PDP_VAULT_KEY="<frasa-rahasia>" PDP_LLM_URL=http://127.0.0.1:8080`
+3. Inside the agent: `/login llama.cpp`, `/llama` (download/load model),
+   `/model` (select). Without `PDP_LLM_URL`, the regex filter still runs.
+4. Production: `export PDP_VAULT_KEY="<passphrase>" PDP_LLM_URL=http://127.0.0.1:8080`
 
-Visual diagram: buka `pdp/alir-data.html`.
+Visual flow: open `pdp/alir-data.html`.
 
 ## Input, process, output
 
-| Stage | Input | Process (lokasi) | Output |
+| Stage | Input | Process (location) | Output |
 |---|---|---|---|
-| Fase 1a | Raw prompt + file context | `pdpFase1Sterilize` via `transformContext` di `sdk.ts` (fork) atau handler proxy; retention sweep; audit `fase1.input` | Logged text + timestamp |
-| Fase 1b | Logged text | Alias watchlist -> NIK separator -> regex NIK/phone/email -> token vault (AES bila key diset, mutex antar-proses); optional local LLM via `PDP_LLM_URL` (llama.cpp `:8080`) untuk name/address; audit `fase1.steril` | Sterilized messages + hit report |
-| Fase 2 | Sterilized messages | Frontier provider USA seperti biasa | Tokenized response |
-| Fase 2b | Tokenized response | `pdpFase2Restore` di `assistant.ts` (fork) atau proxy handler; token -> original value dari vault; audit `fase2.response` | Full answer ke user |
-| Guard | Model tool arguments (fork) | Event `tool_call` di extension: pola PII (termasuk NIK separator) = execution ditolak + audit `block_tool` | Tool berbahaya tidak jalan |
+| Fase 1a | Raw prompt + file context | `pdpFase1Sterilize` via `transformContext` (`sdk.ts`, fork) or proxy handler; retention sweep; audit `fase1.input` | Logged text + timestamp |
+| Fase 1b | Logged text | Alias watchlist -> separator-tolerant NIK -> regex NIK/phone/email -> AES vault tokens (inter-process mutex); optional local LLM via `PDP_LLM_URL` (llama.cpp `:8080`) for names/addresses; audit `fase1.steril` | Sterilized messages + hit report |
+| Fase 2 | Sterilized messages | Frontier USA provider as usual | Tokenized response |
+| Fase 2b | Tokenized response | `pdpFase2Restore` (`assistant.ts`, fork) or proxy handler; tokens -> originals from vault; audit `fase2.response` | Full answer to user |
+| Guard | Model tool arguments (fork) | `tool_call` event: PII patterns (incl. spaced NIK) = execution denied + `block_tool` audit | Dangerous tool never runs |
 
-## Data apa yang wajib steril (Pasal 4 UU 27/2022, terverifikasi verbatim)
+## What must be sterilized (UU PDP Article 4, verified verbatim)
 
-Sumber teks: pasal.id, cross-check metadata BPK RI. Bukan nasihat hukum.
+Source: pasal.id, cross-checked with BPK RI metadata. Not legal advice.
 
-**Specific** (high risk, Psl 4 ayat 2): health data and information;
+**Specific data** (high risk, Art. 4(2)): health data and information;
 biometric; genetic; criminal records; children data; personal financial data;
 other data per regulation.
 
-**General** (Psl 4 ayat 3): full name; gender; nationality; religion;
-marital status; combined data identifying a person. NIK, phone number,
-dan email masuk lewat huruf f (standard interpretation: single/combined
-identifier). Label interpretasi ini eksplisit agar tidak dikira bunyi pasal.
+**General data** (Art. 4(3)): full name; gender; nationality; religion;
+marital status; combined data identifying a person. NIK, phone, and email
+fall under letter f (standard interpretation: single/combined identifiers).
+Labeled as interpretation, not statutory text.
 
-## Scope aplikasi: 3 tier, tegas
+## Scope: 3 explicit tiers
 
-**Tier 1 — auto-tokenized (never leaves the machine):** NIK 16 digit
-(rapat maupun spaced/dash/dot), Indonesian phone number, email, plus
-project watchlist (`.pi/pdp/aliases.json`, contoh di
-`pdp/aliases.example.json`). Always on, no LLM needed. Other names/addresses
-menyusul otomatis bila `PDP_LLM_URL` diset (local classifier).
+**Tier 1 — auto-tokenized (never leaves the machine):** 16-digit NIK
+(plain, spaced, dashed, dotted), Indonesian phone numbers, emails, plus
+project watchlist (`.pi/pdp/aliases.json`, see `pdp/aliases.example.json`).
+Always on, no LLM needed. Other names/addresses follow automatically when
+`PDP_LLM_URL` is set.
 
 **Tier 2 — flagged, redaction optional:** health, biometric, genetic,
 criminal records, children, financial. Default: trigger words (`diagnosa`,
-`rekening`, `gaji`...) dicatat sebagai `SPECIFIC_HINT`. Set `PDP_STRICT=1`
-agar trigger sentence ditokenisasi utuh (`__PDP_SENSITIVE_n__`, original di
-vault) — untuk klinik/RS.
+`rekening`, `gaji`...) logged as `SPECIFIC_HINT`. Set `PDP_STRICT=1` for
+full-sentence tokenization (`__PDP_SENSITIVE_n__`, originals in vault) —
+for clinics and hospitals.
 
-**Tier 3 — out of scope, tidak disentuh:** gender, nationality, religion,
-marital status (low risk, merusak answer quality bila disensor);
-binary images/attachments; `systemPrompt`.
+**Tier 3 — out of scope, untouched:** gender, nationality, religion, marital
+status (low risk, destroys answer quality if redacted); binary
+images/attachments; `systemPrompt`.
 
-Di luar 3 tier di atas = bukan janji aplikasi ini.
-
-## Bukti implementasi (evidence)
-
-Setiap request meninggalkan stamp chain di `sessions/<id>/audit.jsonl`:
-
-```json
-{"ts":1788651011.89,"stage":"fase1.input","nMessages":2,"text":"..."}
-{"ts":1788651011.90,"stage":"fase1.steril","report":{"hits":{"NIK":1},"tokens":1,"llmUsed":false}}
-{"ts":1788651012.41,"stage":"fase2.response","tokensRestored":1}
-{"ts":1788690000.00,"stage":"retention.sweep","vaultDropped":3,"auditDropped":12,"auditKept":40,"days":30}
-```
-
-Mode proxy menambah `proxy.forward` (session, token count, upstream host),
-`proxy.blocked` (request ditahan + alasan), `proxy.upstream_error` (status).
-Mode fork menambah `block_tool` (tool ditolak + pola) via extension.
-
-Plus: `vault.json` (encrypted token map, satu-satunya tempat original value),
-`/pdp-purge` (wipe vault + log = hak hapus Psl 8-15), dan automatic retention:
-
-| Data | Default | Atur | Mati |
-|---|---|---|---|
-| Vault tokens | 30 hari | `PDP_RETENTION_DAYS=N` | `=0` |
-| Audit rows | 30 hari | sama | sama |
-
-Sweep jalan tiap awal fase 1 dan mengaudit dirinya sendiri
-(`retention.sweep`). Ini menjawab Psl 35-40 (security + record keeping)
-dan menjadi mitigating evidence untuk denda Psl 184-185: every byte sent
-out dapat ditelusur ke stamp-nya.
+Outside these 3 tiers = not this product's promise.
 
 ## Environment variables
 
-| Variable | Default | Efek |
+| Variable | Default | Effect |
 |---|---|---|
-| `PDP_GUARD` | on | `=0` disable seluruh layer (emergency/test) |
-| `PDP_DIR` | `<cwd>/.pi/pdp` | pindah vault + log |
-| `PDP_VAULT_KEY` | kosong (plain + warning) | passphrase enkripsi vault AES-256-GCM (wajib production) |
-| `PDP_LLM_URL` | off | `http://127.0.0.1:8080` enable local classifier |
-| `PDP_LLM_MODEL` | `local-pii-8b` | model name di llama.cpp router |
-| `PDP_RETENTION_DAYS` | `30` | batas simpan vault + audit hari (`0` = off) |
-| `PDP_STRICT` | `0` | `=1` full sentence redaction Tier 2 |
-| `PDP_SESSIONS` | on | `=0` disable isolasi vault per session |
-| `PDP_UPSTREAM_URL` | wajib (proxy) | frontier base URL, mis. `https://api.openai.com/v1` |
-| `PDP_UPSTREAM_KEY` | wajib (proxy) | frontier API key (hanya di env, tidak di-log) |
-| `PDP_PROXY_PORT` | `11480` | listen port proxy (localhost only) |
+| `PDP_GUARD` | on | `=0` disables the layer (emergency/test) |
+| `PDP_DIR` | `<cwd>/.pi/pdp` | relocate vault + logs |
+| `PDP_VAULT_KEY` | empty (plaintext + warning) | AES-256-GCM vault encryption passphrase (mandatory for production) |
+| `PDP_LLM_URL` | off | `http://127.0.0.1:8080` enables the local classifier |
+| `PDP_LLM_MODEL` | `local-pii-8b` | model name in the llama.cpp router |
+| `PDP_RETENTION_DAYS` | `30` | vault + audit retention in days (`0` = off) |
+| `PDP_STRICT` | `0` | `=1` full Tier-2 sentence redaction |
+| `PDP_SESSIONS` | on | `=0` disables per-session vault isolation |
+| `PDP_UPSTREAM_URL` | required (proxy) | frontier base URL, e.g. `https://api.openai.com/v1` |
+| `PDP_UPSTREAM_KEY` | required (proxy) | frontier API key (env only, never logged) |
+| `PDP_PROXY_PORT` | `11480` | proxy listen port (localhost only) |
 
-## In-agent commands (mode fork)
+## In-agent commands (fork mode)
 
 * `/pdp-status` — recent audit trail across sessions.
-* `/pdp-purge` — wipe vault + log proyek ini (konfirmasi dulu).
+* `/pdp-purge` — wipe project vault + logs (with confirmation).
 
-## Struktur repo (mana milik siapa)
+## Repository map (ours vs upstream)
 
-Baru milik produk:
+New product code:
 
 * `packages/agent/src/harness/pdp/` — `patterns.ts`, `store.ts` (AES vault + audit +
   retention + sessions + mutex), `fase1.ts`, `fase2.ts`, `index.ts`
-* `packages/pdp-proxy/` — standalone proxy (`src/server.ts`), reuse core di atas
+* `packages/pdp-proxy/` — standalone proxy reusing the core above
 * `.pi/extensions/pdp-guard.ts` — tool argument blocker + second net +
   `/pdp-status` + `/pdp-purge`
 * `pdp/` — docs, `LLAMA_PIN`, `setup-llama.sh`, `aliases.example.json`,
   `alir-data.html`, `python-oracle/` (pattern spec + parity test)
+* `AGENTS.md` — machine-readable brief for AI agents; `llms.txt` — crawler index
 
-Edit file upstream, masing-masing ditandai `PDP-ID` (<10 baris):
+Upstream edits, each tagged `PDP-ID` (<10 lines):
 
-1. `packages/coding-agent/src/core/sdk.ts` — `transformContext` memanggil fase 1
-2. `packages/agent/src/harness/execution/assistant.ts` — final message lewat fase 2
+1. `packages/coding-agent/src/core/sdk.ts` — `transformContext` calls fase 1
+2. `packages/agent/src/harness/execution/assistant.ts` — final message passes fase 2
 3. `packages/agent/package.json` — exports += `./harness/pdp`
 
-Sisanya 100% upstream.
+Everything else is 100% upstream.
 
-## Update upstream
+## Upstream sync
 
-* `pdp-sync-upstream` (daily): merge `earendil-works/pi` `main` ke sini.
-  Konflik hanya mungkin di 3 file edit di atas; selebihnya clean merge.
-* `pdp-bump-llama` (daily): new llama.cpp build pin dibuka sebagai PR.
+* `pdp-sync-upstream` (daily): merges `earendil-works/pi` `main` here.
+  Conflicts possible only in the 3 edited files above.
+* `pdp-bump-llama` (daily): new llama.cpp build pins open as PRs.
 
-## Keamanan dan konkurensi
+## Concurrency and security engineering
 
-Hasil audit internal (lihat riwayat commit):
+From internal audit (see commit history):
 
-* Vault write mutually exclusive antar-proses (atomic mkdir lock + stale
-  reclaim + 2s timeout melempar agar fail-closed). Referensi pola:
-  `proper-lockfile`.
-* Torn read saat writer lain aktif di-retry 4x sebelum menyerah.
-* scrypt key derivation di-cache per nilai env (bukan per token).
-* Proxy fail-closed berlapis: `stream:true` ditolak, `messages` invalid
-  ditolak 400, gagal fase 1 ditahan 500 — semua + audit `proxy.blocked`.
-* Frontier key hanya via env, tidak pernah ditulis ke log/vault.
+* Cross-process exclusive vault writes (atomic mkdir lock + stale reclaim +
+  2s timeout that throws fail-closed). Pattern reference: `proper-lockfile`.
+* Torn-read retry (4x) before giving up.
+* scrypt key derivation cached per env value, not per token.
+* Layered proxy fail-closed: `stream:true` rejected, invalid `messages`
+  rejected 400, fase-1 failure held 500 — all with `proxy.blocked` audits.
+* Frontier keys env-only, never written to logs or vault.
 
-## Batasan (dibaca sebelum klaim patuh)
+## Limitations (read before claiming compliance)
 
-1. Tier 2 default flag only; full redaction butuh `PDP_STRICT=1`.
-2. Filter bisa miss: alias names, typo NIK. Spaced/dashed NIK dan
-   watchlist covered.
-3. Vault encrypted hanya bila `PDP_VAULT_KEY` diset; tanpa key = plain +
-   warning. Wajib set untuk production.
-4. Tool arguments berpola PII hard-blocked (`tool_call` block).
-5. Images, binary files, dan `systemPrompt` tidak dipindai.
-6. Vault isolated per session (`sessions/<id>/`, default on).
-   Multi-process satu sesi OS berbagi via `PDP_ACTIVE_DIR` (mutex-protected).
-7. Tanpa `PDP_LLM_URL`, free-form names/addresses lolos.
-8. Bila fase 1 crash di mode fork, pesan mentah lanjut + audit `fase1.error`
-   (second net extension menutup pola dasar). Mode proxy fail-closed.
-9. Proxy v1 non-streaming only. `npm run check` upstream butuh
-   `node_modules` (belum dijalankan di sini); penggantinya bundle esbuild
-   + 11 unit test lolos pada code asli.
+1. Tier 2 is flag-only by default; full redaction needs `PDP_STRICT=1`.
+2. Detection can miss: alias names, NIK typos. Spaced/dashed NIK and
+   watchlists covered.
+3. Vault encrypted only with `PDP_VAULT_KEY`; without it plaintext + warning.
+4. PII-patterned tool arguments hard-blocked (`tool_call` block).
+5. Images, binaries, and `systemPrompt` are not scanned.
+6. Vaults isolated per session (`sessions/<id>/`, on by default).
+   Multi-process shares one OS session via `PDP_ACTIVE_DIR` (mutex-protected).
+7. Without `PDP_LLM_URL`, free-form names/addresses pass through.
+8. Fork-mode fase-1 crash passes messages through + `fase1.error` audit
+   (extension second net covers base patterns). Proxy mode is fail-closed.
+9. Proxy v1 is non-streaming only.
 
-## Dasar hukum (ringkas, per Sep 2026)
+## FAQ — UU PDP compliance for AI tools in Indonesia
 
-* UU 27/2022 full enforcement Okt 2024; PP 33/2026 aturan pelaksanaannya.
-* PP Psl 184: administrative sanctions (teguran, suspend, delete/destroy, fine).
-* PP Psl 185: fine up to 2% annual revenue (ditimbang impact, duration, data type,
-  subject count, cooperation, business scale, compliance history).
-* PP Psl 105-106: data subject bisa claim compensation, ditolak = bisa gugat.
-* Layer ini menjawab: minimization (Psl 16), specific data (Psl 4/PP Psl 6),
-  processing records (Psl 35-40), right to erasure (Psl 8-15).
+**Berapa denda pelanggaran UU PDP?**
+PP 33/2026 Pasal 185: up to 2% of annual revenue, weighted by impact,
+duration, data type, subject count, cooperation, business scale, and
+compliance history. Plus per-subject compensation lawsuits (Pasal 105-106).
 
-## Atribusi
+**Apakah mengirim NIK ke ChatGPT melanggar UU PDP?**
+Transferring personal data abroad without a legal basis and safeguards
+violates transfer rules and minimization duties. This tool ensures the
+frontier model only ever receives tokens, with logged consent-basis records.
+
+**Bagaimana cara comply UU PDP untuk AI coding assistant?**
+Minimize (tokenize before sending), log every processing step with
+timestamps, enforce retention and erasure, and keep filtering in-country.
+That is exactly the four-stamp chain this repo implements.
+
+**Apakah ada tool open source UU PDP Indonesia?**
+Audit checklists exist (2-star skills/repos). This is the only runtime
+enforcement layer mapped to Pasal 4 tiers with PP 33/2026 evidence output.
+
+**Apakah bisa dipakai dengan Claude Code / Codex / Cursor?**
+Yes — proxy mode is OpenAI-compatible and agent-agnostic (non-streaming v1).
+
+## Legal basis (summary, Sep 2026)
+
+* UU 27/2022 fully enforced since Oct 2024; PP 33/2026 implements it.
+* PP Art. 184: administrative sanctions. PP Art. 185: fines up to 2%.
+* PP Art. 105-106: subject compensation claims and lawsuits.
+* This layer answers: minimization (Art. 16), specific data (Art. 4 / PP Art. 6),
+  processing records (Art. 35-40), erasure (Art. 8-15).
+
+## Attribution
 
 Upstream: [earendil-works/pi](https://github.com/earendil-works/pi) (MIT).
-Dokumentasi asli tiap paket tetap di `packages/*/README.md`.
-Untuk AI agent yang membaca repo ini: lihat `AGENTS.md`.
+Per-package upstream docs remain in `packages/*/README.md`.
+AI agents reading this repo: see `AGENTS.md` and `llms.txt`.

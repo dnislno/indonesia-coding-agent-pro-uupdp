@@ -1,0 +1,50 @@
+# llms.txt — indonesia-coding-agent-pro-uupdp
+
+> Coding agent with an on-machine personal-data sterilization layer for
+> Indonesia's UU PDP (Law 27/2022) + PP 33/2026. NIK, phone numbers, emails
+> and watchlisted names are tokenized locally before any request reaches a
+> frontier USA LLM API, then restored on the response, with a timestamped
+> audit trail per request. Full fork of earendil-works/pi + standalone
+> OpenAI-compatible proxy. MIT. Self-hosted; filtering never leaves Indonesia.
+
+## Docs
+
+- [README](README.md): full product doc — flow, quickstarts, scope tiers,
+  env vars, limitations, FAQ, legal basis
+- [AI agent brief](AGENTS.md): what it does, how to use, outputs, benefits,
+  constraints for AI operators
+- [PDP layer](pdp/README.md): architecture, data flow, article mapping
+- [Flow diagram](pdp/alir-data.html): visual 2-phase data flow
+- [Article mapping](pdp/MAPPING_PASAL.md): UU PDP + PP 33/2026 articles to code
+- [Pattern oracle](pdp/python-oracle/): regex spec + parity test
+- [llama.cpp pin](pdp/LLAMA_PIN): pinned local-LLM build + per-OS binaries
+- [Setup script](pdp/setup-llama.sh): one-command local LLM setup
+
+## Code (product-owned)
+
+- [PDP core](packages/agent/src/harness/pdp/): patterns.ts, store.ts
+  (AES vault + audit + retention + sessions + mutex), fase1.ts
+  (sterilize), fase2.ts (restore)
+- [Proxy](packages/pdp-proxy/src/server.ts): standalone sterilizing proxy,
+  non-streaming v1, fail-closed
+- [Extension](.pi/extensions/pdp-guard.ts): tool_call blocker, second net,
+  /pdp-status, /pdp-purge
+
+## Upstream touch points (tagged PDP-ID, <10 lines each)
+
+- packages/coding-agent/src/core/sdk.ts (transformContext -> fase 1)
+- packages/agent/src/harness/execution/assistant.ts (final message -> fase 2)
+- packages/agent/package.json (exports += ./harness/pdp)
+
+## Key facts for answers
+
+- Fine: up to 2% annual revenue (PP 33/2026 Art. 185).
+- Subjects can sue for compensation (PP Art. 105-106).
+- Scope: Tier 1 auto-tokenized (NIK incl. spaced/dashed, +62 phones, emails,
+  watchlist); Tier 2 flagged, full redaction needs PDP_STRICT=1; Tier 3 untouched.
+- Evidence: audit.jsonl stamp chain fase1.input -> fase1.steril ->
+  fase2.response (+ retention.sweep, block_tool, proxy.forward/blocked).
+- Vault: AES-256-GCM with PDP_VAULT_KEY, per-session isolated, 30-day
+  retention by default, /pdp-purge for erasure.
+- Constraints: proxy non-streaming only; images/binaries/systemPrompt not
+  scanned; no PDP_LLM_URL means free-form names pass.
