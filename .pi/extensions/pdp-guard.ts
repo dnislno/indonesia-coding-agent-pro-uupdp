@@ -2,11 +2,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-// PDP-Guard: jaring pengaman kedua + monitor. Fase 1 (sterilisasi token) dan
-// fase 2 (kembalikan PII) berjalan di core: packages/agent/src/harness/pdp/,
-// dikabel di sdk.ts transformContext dan assistant.ts pesan final.
-// Extension ini: (1) jaring kedua di before_provider_request bila core
-// dilewati (PDP_GUARD=0), (2) /pdp-status baca audit, (3) /pdp-purge hapus vault+log.
+// PDP-Guard: second net + monitor. Fase 1 (token sterilization) dan
+// fase 2 (PII restore) jalan di core: packages/agent/src/harness/pdp/,
+// wired di sdk.ts transformContext dan assistant.ts final message.
+// Extension ini: (1) second net di before_provider_request bila core
+// dilewati (PDP_GUARD=0), (2) /pdp-status baca audit, (3) /pdp-purge wipe vault+log.
 
 const TOKEN = "[REDACTED]";
 
@@ -77,8 +77,8 @@ function auditTail(cwd: string, n: number): string[] {
 }
 
 export default function (pi: ExtensionAPI) {
-  // P0: tolak eksekusi tool yang argumennya mengandung pola PII.
-  // Jalur tool tidak lewat fase 1 core; ini satu-satunya penutupnya.
+  // P0: reject tool execution yang argumennya mengandung pola PII.
+  // Tool path tidak lewat fase 1 core; ini satu-satunya penutupnya.
   pi.on("tool_call", async (event: any, ctx: any) => {
     try {
       const raw = JSON.stringify(event?.input ?? {});
@@ -86,7 +86,7 @@ export default function (pi: ExtensionAPI) {
       redactString(raw, hits);
       const n = Object.values(hits).reduce<number>((a, b) => a + b, 0);
       if (n === 0) return undefined;
-      const reason = `PDP: argumen tool '${event?.toolName ?? "?"}' mengandung ${n} pola data pribadi (${Object.keys(hits).join(", ")}). Sterilkan dulu.`;
+      const reason = `PDP: tool '${event?.toolName ?? "?"}' arguments contain ${n} personal data pattern (${Object.keys(hits).join(", ")}). Sterilkan input dulu.`;
       ctx.ui.notify(reason, "error");
       pi.appendEntry("pdp-guard", { ts: Date.now(), action: "block_tool", tool: event?.toolName, hits });
       return { block: true, reason };
@@ -99,32 +99,32 @@ export default function (pi: ExtensionAPI) {
     const { payload, hits } = redactPayload(event?.payload);
     const n = Object.values(hits).reduce<number>((a, b) => a + b, 0);
     if (n === 0) return undefined;
-    ctx.ui.notify(`PDP-Guard (jaring kedua): ${n} pola PII disamarkan`, "warning");
+    ctx.ui.notify(`PDP-Guard (second net): ${n} PII pattern redacted`, "warning");
     pi.appendEntry("pdp-guard", { ts: Date.now(), action: "redact_fallback", hits });
     return payload;
   });
 
   pi.registerCommand("pdp-status", {
-    description: "Tampilkan 5 baris audit PDP terakhir (UU PDP 27/2022)",
+    description: "Show recent PDP audit trail (UU PDP 27/2022)",
     handler: async (_args: any, ctx: any) => {
       const lines = auditTail(ctx.cwd as string, 5);
       ctx.ui.notify(
-        lines.length === 0 ? "PDP: belum ada audit sesi ini." : `PDP audit:\n${lines.join("\n")}`,
+        lines.length === 0 ? "PDP: no audit entries in this project yet." : `PDP audit:\n${lines.join("\n")}`,
         "info",
       );
     },
   });
 
   pi.registerCommand("pdp-purge", {
-    description: "Hapus vault token + log audit PDP proyek ini (hak hapus UU PDP)",
+    description: "Wipe project PDP vault + audit logs (right to erasure, UU PDP)",
     handler: async (_args: any, ctx: any) => {
-      const ok = await ctx.ui.confirm("PDP purge", "Hapus vault + audit .pi/pdp proyek ini?");
+      const ok = await ctx.ui.confirm("PDP purge", "Wipe project vault + audit (.pi/pdp)?");
       if (!ok) return;
       try {
         rmSync(pdpDir(ctx.cwd as string), { recursive: true, force: true });
-        ctx.ui.notify("PDP: vault + audit dihapus.", "info");
+        ctx.ui.notify("PDP: vault + audit wiped.", "info");
       } catch (err) {
-        ctx.ui.notify(`PDP purge gagal: ${err instanceof Error ? err.message : String(err)}`, "error");
+        ctx.ui.notify(`PDP purge failed: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     },
   });

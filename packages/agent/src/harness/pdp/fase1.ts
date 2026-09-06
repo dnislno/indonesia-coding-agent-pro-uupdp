@@ -1,6 +1,6 @@
-// PDP-ID FASE 1: catat input + timestamp, sterilkan PII jadi token, catat bukti.
-// Dipanggil dari transformContext (sdk.ts) SEBELUM pesan ke provider.
-// Tidak pernah throw: gagal = kembalikan pesan apa adanya + audit kegagalan.
+// PDP-ID FASE 1: log input + timestamp, sterilize PII to tokens, catat bukti.
+// Called from transformContext (sdk.ts) BEFORE provider request.
+// Never throws: on failure return messages unchanged + audit the failure.
 
 import { PII_PATTERNS, SPECIFIC_HINT } from "./patterns.ts";
 import { pdpAudit, pdpRetentionSweep, resolvePdpDir, vaultPut } from "./store.ts";
@@ -8,8 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * PDP_STRICT=1: kalimat berisi kata pemicu data spesifik ditokenisasi utuh.
- * Default 0 = hanya tandai (SPECIFIC_HINT). Kalimat asli masuk vault.
+ * PDP_STRICT=1: trigger sentence data spesifik ditokenisasi utuh.
+ * Default 0 = flag only (SPECIFIC_HINT). Original sentence masuk vault.
  */
 function strictSentences(text: string, dir: string, hits: Record<string, number>): string {
 	if (process.env["PDP_STRICT"] !== "1") return text;
@@ -29,7 +29,7 @@ export interface Fase1Report {
 	llmExtra: number;
 }
 
-/** 16 digit ber-separator (spasi/titik/strip): "3174 0512 0990 0001". */
+/** 16 digit with separators (spasi/titik/strip): "3174 0512 0990 0001". */
 const NIK_SEP_RX = /\b\d(?:[\s.\-]*\d){15}\b/g;
 
 function escapeRx(s: string): string {
@@ -42,7 +42,7 @@ interface Alias {
 }
 
 /**
- * Daftar pantau proyek: <dir>/aliases.json
+ * Project watchlist: <dir>/aliases.json
  * {"Budi Santoso": "NAMA"} atau ["Budi Santoso"] (default label NAMA).
  */
 function loadAliases(dir: string): Alias[] {
@@ -80,7 +80,7 @@ function applyAliases(text: string, dir: string, hits: Record<string, number>): 
 	return out;
 }
 
-/** Ganti PII berpola dengan token vault. Kembalikan teks steril + jumlah. */
+/** Replace PII berpola dengan token vault. Return sterilized text + counts. */
 export function sterilizeText(text: string, dir: string, hits: Record<string, number>): string {
 	let out = applyAliases(text, dir, hits);
 	NIK_SEP_RX.lastIndex = 0;
@@ -130,7 +130,7 @@ interface LlmSpan {
 	value: string;
 }
 
-/** Pass LLM lokal (llama.cpp router OpenAI-compatible). Gagal = lewati, regex tetap berlaku. */
+/** Local LLM pass (llama.cpp router, OpenAI-compatible). Gagal = skip, regex tetap berlaku. */
 async function llmSpans(text: string, baseUrl: string, model: string): Promise<LlmSpan[]> {
 	const ctrl = new AbortController();
 	const t = setTimeout(() => ctrl.abort(), 15000);
@@ -189,12 +189,12 @@ function sterilizeOneMessage(msg: unknown, dir: string, hits: Record<string, num
 }
 
 /**
- * FASE 1. messages = AgentMessage[] (defensif: bentuk lain diteruskan).
- * Tahap 0: sapu retensi. Tahap 1: audit fase1.input (teks penuh + timestamp).
- * Tahap 2: alias -> NIK separator -> regex -> token, lalu LLM lokal bila
+ * FASE 1. messages = AgentMessage[] (defensive: other shapes passed through).
+ * Tahap 0: retention sweep. Tahap 1: audit fase1.input (full text + timestamp).
+ * Tahap 2: alias -> NIK separator -> regex -> token, lalu local LLM bila
  * PDP_LLM_URL diset -> token. Audit fase1.steril sebagai bukti.
- * opts.sessionId mengisolasi vault per sesi + diekspor via PDP_ACTIVE_DIR
- * agar fase 2 menemukan vault yang sama. Kembalikan pesan steril + laporan + dir.
+ * opts.sessionId mengisolasi vault per session + diekspor via PDP_ACTIVE_DIR
+ * agar fase 2 menemukan vault yang sama. Return sterilized messages + report + dir.
  */
 export async function pdpFase1Sterilize(
 	messages: unknown,

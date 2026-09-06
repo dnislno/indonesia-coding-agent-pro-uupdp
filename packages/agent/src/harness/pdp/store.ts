@@ -1,5 +1,5 @@
-// PDP-ID penyimpanan lokal: vault token + audit JSONL. Tanpa dependensi baru.
-// Tidak pernah throw: kegagalan IO dicatat ke stderr, agent tetap jalan.
+// PDP-ID local storage: token vault + audit JSONL. Zero new dependencies.
+// Never throws: IO failure logged to stderr, agent keeps running.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -13,8 +13,8 @@ export interface VaultEntry {
 }
 
 /**
- * Enkripsi vault (AES-256-GCM). Kunci dari env PDP_VAULT_KEY (frasa bebas,
- * diturunkan via scrypt). Tanpa env = plain + peringatan sekali per proses.
+ * Vault encryption (AES-256-GCM). Key dari env PDP_VAULT_KEY (free passphrase,
+ * derived via scrypt). Tanpa env = plaintext + one-time warning per process.
  */
 type StoredValue = string | { v: 1; iv: string; ct: string };
 
@@ -31,7 +31,7 @@ function seal(plain: string): StoredValue {
 	if (!key) {
 		if (!warnedPlain) {
 			warnedPlain = true;
-			console.error("[pdp] PDP_VAULT_KEY kosong: vault tersimpan plain. Set untuk produksi.");
+			console.error("[pdp] PDP_VAULT_KEY empty: vault stored in plaintext. Set it for production.");
 		}
 		return plain;
 	}
@@ -104,11 +104,11 @@ function writeVault(
 	try {
 		writeFileSync(vaultPath(dir), JSON.stringify(data, null, 2));
 	} catch (err) {
-		console.error(`[pdp] vault write gagal: ${err instanceof Error ? err.message : String(err)}`);
+		console.error(`[pdp] vault write failed: ${err instanceof Error ? err.message : String(err)}`);
 	}
 }
 
-/** Simpan nilai asli (terenkripsi bila PDP_VAULT_KEY diset), kembalikan token. Idempoten. */
+/** Simpan original value (encrypted bila PDP_VAULT_KEY diset), return token. Idempotent. */
 export function vaultPut(dir: string, label: string, value: string): string {
 	const v = readVault(dir);
 	for (const [tok, e] of Object.entries(v.tokens)) {
@@ -122,14 +122,14 @@ export function vaultPut(dir: string, label: string, value: string): string {
 	return tok;
 }
 
-/** Kembalikan nilai asli untuk token, atau undefined bila tak dikenal / kunci salah. */
+/** Return original value untuk token, atau undefined bila unknown / wrong key. */
 export function vaultGet(dir: string, token: string): string | undefined {
 	const e = readVault(dir).tokens[token];
 	if (!e) return undefined;
 	return open(e.value);
 }
 
-/** Batas simpan hari (env PDP_RETENTION_DAYS, default 30, 0 = nonaktif). */
+/** Retention hari (env PDP_RETENTION_DAYS, default 30, 0 = off). */
 export function retentionDays(): number {
 	const raw = process.env["PDP_RETENTION_DAYS"];
 	if (raw === undefined || raw === "") return 30;
@@ -138,8 +138,8 @@ export function retentionDays(): number {
 }
 
 /**
- * Sapu entri vault + baris audit lebih tua dari batas. Kembalikan hitungan.
- * Dipanggil tiap awal fase 1. Audit hasilnya sebagai stempel retention.sweep.
+ * Sweep entries vault + audit rows older than retention. Returns counts.
+ * Called at each fase 1 start. Self-audits via retention.sweep stamp.
  */
 export function pdpRetentionSweep(dir: string): { vaultDropped: number; auditDropped: number; auditKept: number } {
 	const zero = { vaultDropped: 0, auditDropped: 0, auditKept: 0 };
@@ -189,12 +189,12 @@ export function pdpRetentionSweep(dir: string): { vaultDropped: number; auditDro
 		return zero;
 	}
 }
-/** Audit append-only satu baris JSON per kejadian. Tidak pernah throw. */
+/** Append-only audit, one JSON line per event. Never throws. */
 export function pdpAudit(dir: string, stage: string, data: Record<string, unknown>): void {
 	try {
 		mkdirSync(dir, { recursive: true });
 		appendFileSync(auditPath(dir), `${JSON.stringify({ ts: Date.now(), stage, ...data })}\n`);
 	} catch (err) {
-		console.error(`[pdp] audit gagal: ${err instanceof Error ? err.message : String(err)}`);
+		console.error(`[pdp] audit failed: ${err instanceof Error ? err.message : String(err)}`);
 	}
 }

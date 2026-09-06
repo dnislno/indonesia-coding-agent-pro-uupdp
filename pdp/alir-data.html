@@ -22,29 +22,29 @@ th,td{border:1px solid var(--border);padding:6px 8px;text-align:left}
 th{color:var(--muted-foreground);font-weight:600}
 code{font-size:11.5px}
 </style></head><body>
-<h2>Alir Data: Filter Lokal (Fase 1) → Frontier USA (Fase 2)</h2>
-<p class="sub">Satu kesatuan utuh. Hijau = lokal aman UU PDP. Biru = eksternal. Kuning = bukti patuh.</p>
+<h2>Data flow: local filter (Fase 1) → frontier USA (Fase 2)</h2>
+<p class="sub">Satu kesatuan utuh. Hijau = local, UU PDP-safe. Biru = external. Kuning = compliance evidence.</p>
 <div class="flow">
-<div class="node io"><b>INPUT dev</b><span>"betulkan query WHERE nik='3174051209900001'" — teks mentah, bisa ada PII</span></div>
+<div class="node io"><b>INPUT dev</b><span>"betulkan query WHERE nik='3174051209900001'" — raw text, may contain PII</span></div>
 <div class="arrow">transformContext (sdk.ts)</div>
-<div class="node ev"><b>Stempel 1 — fase1.input</b><span>audit.jsonl: timestamp + teks penuh + jumlah pesan</span></div>
+<div class="node ev"><b>Stamp 1 — fase1.input</b><span>audit.jsonl: timestamp + full text + message count</span></div>
 <div class="arrow">pdpFase1Sterilize</div>
-<div class="node f1"><b>Sterilisasi regex → token vault</b><span>NIK/HP/email → <code>__PDP_NIK_1__</code>. Peta asli hanya di <code>.pi/pdp/vault.json</code> lokal</span></div>
+<div class="node f1"><b>Regex sterilization → token vault</b><span>NIK/phone/email → <code>__PDP_NIK_1__</code>. Originals only in local <code>.pi/pdp/vault.json</code></span></div>
 <div class="arrow">bila PDP_LLM_URL diset</div>
-<div class="node f1"><b>LLM lokal llama.cpp :8080</b><span>nama/alamat bebas pola → token. Gagal/timeout = lewati, regex tetap berlaku</span></div>
+<div class="node f1"><b>Local LLM llama.cpp :8080</b><span>free-form names/addresses → token. On failure/timeout = skip, regex tetap berlaku</span></div>
 <div class="arrow">keluar fase 1</div>
-<div class="node ev"><b>Stempel 2 — fase1.steril</b><span>audit.jsonl: hits, jumlah token, llmUsed. INI bukti patuh.</span></div>
-<div class="arrow">payload steril ke provider</div>
-<div class="node f2"><b>FASE 2 — API frontier USA</b><span>menerima "WHERE nik='__PDP_NIK_1__'". Data asli tidak pernah keluar.</span></div>
-<div class="arrow">respons model (masih bertoken)</div>
-<div class="node f2"><b>Stempel 3 — fase2.response</b><span>pdpFase2Restore di assistant.ts: token → nilai asli dari vault. Catat tokensRestored.</span></div>
+<div class="node ev"><b>Stamp 2 — fase1.steril</b><span>audit.jsonl: hits, token count, llmUsed. INI compliance evidence.</span></div>
+<div class="arrow">sterilized payload ke provider</div>
+<div class="node f2"><b>FASE 2 — frontier USA API</b><span>receives "WHERE nik='__PDP_NIK_1__'". Raw data never leaves.</span></div>
+<div class="arrow">model response (masih bertoken)</div>
+<div class="node f2"><b>Stamp 3 — fase2.response</b><span>pdpFase2Restore di assistant.ts: token → original value dari vault. Log tokensRestored.</span></div>
 <div class="arrow">ke user + session log</div>
-<div class="node io"><b>OUTPUT user</b><span>"Query WHERE nik='3174051209900001' sudah benar" + rantai 4 stempel utuh</span></div>
+<div class="node io"><b>OUTPUT user</b><span>"Query WHERE nik='3174051209900001' sudah benar" + full 4-stamp chain</span></div>
 </div>
 <table>
-<tr><th>Input</th><th>Proses</th><th>Output</th></tr>
-<tr><td>Prompt + konteks file mentah</td><td>Fase 1 lokal: log → tokenisasi → log bukti</td><td>Payload steril + audit fase1.steril</td></tr>
-<tr><td>Payload steril</td><td>Fase 2: API frontier USA</td><td>Respons bertoken + audit fase2.response</td></tr>
-<tr><td>Respons bertoken</td><td>Restore vault lokal</td><td>Jawaban utuh ke user</td></tr>
+<tr><th>Input</th><th>Process</th><th>Output</th></tr>
+<tr><td>Raw prompt + file context</td><td>Fase 1 local: log → tokenize → log evidence</td><td>Sterilized payload + audit fase1.steril</td></tr>
+<tr><td>Sterilized payload</td><td>Fase 2: frontier USA API</td><td>Tokenized response + audit fase2.response</td></tr>
+<tr><td>Tokenized response</td><td>Local vault restore</td><td>Full answer ke user</td></tr>
 </table>
 </body></html>

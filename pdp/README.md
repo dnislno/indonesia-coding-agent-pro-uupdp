@@ -1,69 +1,58 @@
 # Lapisan PDP Indonesia di atas pi (UU 27/2022 + PP 33/2026)
 
-Repo ini = full fork `earendil-works/pi` + lapisan PDP. Update upstream
-di-merge via workflow `pdp-sync-upstream`; code PDP terisolasi agar merge bersih:
+Repo ini = full fork `earendil-works/pi` + PDP layer. Update upstream
+di-merge via workflow `pdp-sync-upstream`; PDP code terisolasi agar merge bersih:
 
-* Baru: `packages/agent/src/harness/pdp/` (patterns, store, fase1, fase2)
-* Edit upstream (ditandai `PDP-ID`, masing-masing <5 baris):
+* New: `packages/agent/src/harness/pdp/` (patterns, store, fase1, fase2)
+* Upstream edits (tagged `PDP-ID`, each <10 lines):
   1. `packages/coding-agent/src/core/sdk.ts` transformContext -> `pdpFase1Sterilize`
-  2. `packages/agent/src/harness/execution/assistant.ts` pesan final -> `pdpFase2Restore`
+  2. `packages/agent/src/harness/execution/assistant.ts` final message -> `pdpFase2Restore`
   3. `packages/agent/package.json` exports += `./harness/pdp`
-* Extension `.pi/extensions/pdp-guard.ts`: jaring kedua + `/pdp-status` + `/pdp-purge`
-* Oracle pola: `pdp/python-oracle/` (spec + test paritas)
+* Extension `.pi/extensions/pdp-guard.ts`: tool blocker + second net + `/pdp-status` + `/pdp-purge`
+* Oracle pola: `pdp/python-oracle/` (spec + parity test)
 
-## Alir data (4 stempel)
+## Data flow (4 stamps)
 
 ```
 [INPUT dev] "betulkan query WHERE nik='3174...'"
-  |  (1) audit fase1.input {nMessages, teks, ts}
+  |  (1) audit fase1.input {nMessages, text, ts}
   v
-[FASE 1 lokal] regex NIK/HP/email -> token __PDP_NIK_1__ (vault .pi/pdp/vault.json)
-  opsional: LLM lokal via PDP_LLM_URL (llama.cpp router :8080) untuk nama/alamat
-  |  (2) audit fase1.steril {hits, tokens, llmUsed, ts}  <- bukti patuh
+[FASE 1 local] regex NIK/phone/email -> token __PDP_NIK_1__ (session vault)
+  optional: local LLM via PDP_LLM_URL (llama.cpp router :8080)
+  |  (2) audit fase1.steril {hits, tokens, llmUsed, ts}  <- compliance evidence
   v
 [STERIL ke frontier USA] "betulkan query WHERE nik='__PDP_NIK_1__'"
   |
   v
-[RESPONS model] "... __PDP_NIK_1__ ..."
+[RESPONSE model] "... __PDP_NIK_1__ ..."
   |  (3) audit fase2.response {tokensRestored, ts}
-  v  pdpFase2Restore: token -> nilai asli dari vault
-[OUTPUT user] "... 3174..." + log lengkap
+  v  pdpFase2Restore: token -> original value dari vault
+[OUTPUT user] "... 3174..." + full log chain
 ```
 
-Env:
-
-* `PDP_GUARD=0` matikan lapisan (darurat/test)
-* `PDP_DIR` pindah vault+log (default `<cwd>/.pi/pdp`)
-* `PDP_LLM_URL=http://127.0.0.1:8080` aktifkan klasifier lokal
-* `PDP_LLM_MODEL` nama model di router (default `local-pii-8b`)
+Env: `PDP_GUARD=0` (off), `PDP_DIR`, `PDP_LLM_URL` + `PDP_LLM_MODEL`,
+`PDP_RETENTION_DAYS` (default 30), `PDP_STRICT=1`, `PDP_VAULT_KEY`,
+`PDP_SESSIONS=0` (off). Detail + scope 3 tier + evidence di root `README.md`
+dan `AGENTS.md`.
 
 ## Binary llama.cpp per OS (pin: `pdp/LLAMA_PIN`)
 
 * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
-* Windows x64 CPU saja: `llama-<build>-bin-win-cpu-x64.zip`
+* Windows x64 CPU only: `llama-<build>-bin-win-cpu-x64.zip`
 * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
 * Ubuntu x64: `llama-<build>-bin-ubuntu-x64.tar.gz`
 * macOS arm64: `llama-<build>-bin-macos-arm64.tar.gz`
 
-Router:
+Shortcut: `bash pdp/setup-llama.sh`, lalu jalankan printed router command.
+Di pi: `/login llama.cpp`, `/llama`, `/model`.
 
-```bash
-llama-server --models-dir ~/models --no-models-autoload --jinja \
-  --host 127.0.0.1 --port 8080 -ngl 999 -c 32768
-```
-
-## Mapping pasal (ringkas)
+## Mapping pasal (ringkas, bukan nasihat hukum)
 
 | Kewajiban | Sumber | Implementasi |
 |---|---|---|
-| Data spesifik vs umum | UU Psl 4; PP Psl 6 | regex + SPECIFIC_HINT + LLM lokal |
-| Minimisasi | UU Psl 16 | tokenisasi sebelum kirim, selalu on |
-| Catat pemrosesan (RoPA) | UU Psl 35-40 | audit.jsonl 4 stempel + session JSONL |
-| Hak hapus | UU Psl 8-15 | `/pdp-purge` |
-| Bukti menekan denda 2% | PP Psl 184-185 | fase1.steril per kiriman |
-
-## Batas jujur v1.1
-
-* Filter LLM bisa lolos: log simpan diff sebagai bukti usaha, bukan sempurna.
-* Vault `vault.json` plain: enkripsi (AES) = fase berikut untuk produksi.
-* `process.cwd()` dipakai sebagai direktori vault bila core tak tahu cwd proyek.
+| Specific vs general data | UU Psl 4; PP Psl 6 | regex NIK/phone/email + SPECIFIC_HINT |
+| Minimization | UU Psl 16 | tokenization before send, always on |
+| Processing records (RoPA) | UU Psl 35-40 | appendEntry audit per send + audit.jsonl |
+| Right to erasure | UU Psl 8-15 | `/pdp-purge` + automatic retention |
+| Fine mitigation 2% | PP Psl 184-185 | fase1.steril per request as evidence |
+| Consent + withdrawal | UU Psl 20-22; 8-15 | fase berikut (`/pdp-consent`) |

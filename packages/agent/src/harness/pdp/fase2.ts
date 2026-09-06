@@ -1,6 +1,6 @@
-// PDP-ID FASE 2: kembalikan token jadi PII asli pada respons model, lalu catat.
-// Dipanggil di assistant.ts SETELAH afterResponse, SEBELUM observer.end.
-// Tidak pernah throw.
+// PDP-ID FASE 2: restore token ke PII asli pada model response, lalu catat.
+// Called di assistant.ts AFTER afterResponse, BEFORE observer.end.
+// Never throws.
 
 import { TOKEN_RE } from "./patterns.ts";
 import { pdpAudit, resolvePdpDir, vaultGet } from "./store.ts";
@@ -29,7 +29,7 @@ function restoreContent(content: unknown, dir: string, counter: { n: number }): 
 	return content;
 }
 
-/** Substitusi balik semua token __PDP_*__ pada pesan asisten. Kembalikan pesan (baru bila berubah). */
+/** Restore semua token __PDP_*__ pada assistant message. Return pesan baru bila berubah. */
 export function pdpFase2Restore(message: unknown, dir?: string): unknown {
 	try {
 		if (process.env["PDP_GUARD"] === "0") return message;

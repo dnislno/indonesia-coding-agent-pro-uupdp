@@ -1,4 +1,4 @@
-// PDP-ID pola identitas Indonesia. Selaras oracle: pdp/python-oracle/pdp_guard/redactor.py
+// PDP-ID pola identitas Indonesia. Mirror dari oracle: pdp/python-oracle/pdp_guard/redactor.py
 // Token ASCII aman tokenizer: __PDP_NIK_1__
 
 export const TOKEN_PREFIX = "__PDP_";
