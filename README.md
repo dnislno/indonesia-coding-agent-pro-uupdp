@@ -1,3 +1,8 @@
+> **Distribusi Indonesia (UU PDP 27/2022 + PP 33/2026):** fork ini menambah
+> `pdp-guard` (redaksi NIK/HP/email sebelum request ke provider), pin binary
+> llama.cpp (`pdp/LLAMA_PIN`), dan workflow auto-sync. Mulai dari `pdp/README.md`.
+> Upstream asli: [earendil-works/pi](https://github.com/earendil-works/pi).
+
 <p align="center">
   <a href="https://pi.dev">
     <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
