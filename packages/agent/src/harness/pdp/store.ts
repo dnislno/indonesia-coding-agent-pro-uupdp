@@ -1,7 +1,7 @@
 // PDP-ID local storage: token vault + audit JSONL. Zero new dependencies.
 // Never throws: IO failure logged to stderr, agent keeps running.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createDecipheriv, createCipheriv, randomBytes, scryptSync } from "node:crypto";
 import { makeToken } from "./patterns.ts";
@@ -20,10 +20,18 @@ type StoredValue = string | { v: 1; iv: string; ct: string };
 
 let warnedPlain = false;
 
+// Cache turunan kunci per nilai env (scrypt ~puluhan ms; jangan per token).
+let cachedKeyFor: string | null = null;
+let cachedKey: Buffer | null = null;
+
 function vaultKey(): Buffer | null {
 	const k = process.env["PDP_VAULT_KEY"];
 	if (!k) return null;
-	return scryptSync(k, "pdp-id-v1", 32);
+	if (cachedKeyFor !== k) {
+		cachedKeyFor = k;
+		cachedKey = scryptSync(k, "pdp-id-v1", 32);
+	}
+	return cachedKey;
 }
 
 function seal(plain: string): StoredValue {
@@ -69,6 +77,50 @@ function vaultPath(dir: string): string {
 }
 
 /**
+ * Mutex antar-proses via direktori lock (mkdir atomik). Referensi pola:
+ * proper-lockfile (npm, 30M+/minggu): lockfile + stale detection + retry.
+ * Di sini tanpa dependensi baru: stale >10 dtk direbut, timeout 2 dtk melempar
+ * agar penelepon fail-closed (jangan tulis parsial).
+ */
+function withVaultLock<T>(dir: string, fn: () => T): T {
+	mkdirSync(dir, { recursive: true });
+	const lock = join(dir, ".vault.lock");
+	const deadline = Date.now() + 2000;
+	for (;;) {
+		try {
+			mkdirSync(lock);
+			break;
+		} catch {
+			let stale = false;
+			try {
+				stale = Date.now() - statSync(lock).mtimeMs > 10000;
+			} catch {
+				stale = false;
+			}
+			if (stale) {
+				try {
+					rmdirSync(lock);
+				} catch {
+					/* coba lagi */
+				}
+				continue;
+			}
+			if (Date.now() > deadline) throw new Error("vault terkunci (concurrent write timeout)");
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+		}
+	}
+	try {
+		return fn();
+	} finally {
+		try {
+			rmdirSync(lock);
+		} catch {
+			/* abaikan */
+		}
+	}
+}
+
+/**
  * Isolasi sesi: vault+audit tiap sesi di <base>/sessions/<id>/.
  * Default AKTIF (PDP_SESSIONS=0 menonaktifkan). ID disanitasi.
  */
@@ -85,16 +137,22 @@ function auditPath(dir: string): string {
 }
 
 function readVault(dir: string): { tokens: Record<string, VaultEntry>; seq: Record<string, number> } {
-	try {
-		if (!existsSync(vaultPath(dir))) return { tokens: {}, seq: {} };
-		const raw = JSON.parse(readFileSync(vaultPath(dir), "utf8")) as {
-			tokens?: Record<string, VaultEntry>;
-			seq?: Record<string, number>;
-		};
-		return { tokens: raw.tokens ?? {}, seq: raw.seq ?? {} };
-	} catch {
-		return { tokens: {}, seq: {} };
+	const empty = { tokens: {}, seq: {} };
+	// Baca robek (torn read) saat writer lain tengah menulis: retry singkat.
+	for (let attempt = 0; attempt < 4; attempt++) {
+		try {
+			if (!existsSync(vaultPath(dir))) return { tokens: {}, seq: {} };
+			const raw = JSON.parse(readFileSync(vaultPath(dir), "utf8")) as {
+				tokens?: Record<string, VaultEntry>;
+				seq?: Record<string, number>;
+			};
+			return { tokens: raw.tokens ?? {}, seq: raw.seq ?? {} };
+		} catch {
+			if (attempt === 3) return empty;
+			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+		}
 	}
+	return empty;
 }
 
 function writeVault(
@@ -110,16 +168,18 @@ function writeVault(
 
 /** Simpan original value (encrypted bila PDP_VAULT_KEY diset), return token. Idempotent. */
 export function vaultPut(dir: string, label: string, value: string): string {
-	const v = readVault(dir);
-	for (const [tok, e] of Object.entries(v.tokens)) {
-		if (e.label === label && open(e.value) === value) return tok;
-	}
-	const n = (v.seq[label] ?? 0) + 1;
-	v.seq[label] = n;
-	const tok = makeToken(label, n);
-	v.tokens[tok] = { label, value: seal(value), ts: Date.now() };
-	writeVault(dir, v);
-	return tok;
+	return withVaultLock(dir, () => {
+		const v = readVault(dir);
+		for (const [tok, e] of Object.entries(v.tokens)) {
+			if (e.label === label && open(e.value) === value) return tok;
+		}
+		const n = (v.seq[label] ?? 0) + 1;
+		v.seq[label] = n;
+		const tok = makeToken(label, n);
+		v.tokens[tok] = { label, value: seal(value), ts: Date.now() };
+		writeVault(dir, v);
+		return tok;
+	});
 }
 
 /** Return original value untuk token, atau undefined bila unknown / wrong key. */
@@ -147,14 +207,15 @@ export function pdpRetentionSweep(dir: string): { vaultDropped: number; auditDro
 		const days = retentionDays();
 		if (days <= 0) return zero;
 		const cutoff = Date.now() - days * 86400 * 1000;
-		const v = readVault(dir);
-		for (const [tok, e] of Object.entries(v.tokens)) {
-			if (e.ts < cutoff) {
-				delete v.tokens[tok];
-				zero.vaultDropped++;
+		return withVaultLock(dir, () => {
+			const v = readVault(dir);
+			for (const [tok, e] of Object.entries(v.tokens)) {
+				if (e.ts < cutoff) {
+					delete v.tokens[tok];
+					zero.vaultDropped++;
+				}
 			}
-		}
-		writeVault(dir, v);
+			writeVault(dir, v);
 		let kept = 0;
 		let dropped = 0;
 		try {
@@ -185,6 +246,7 @@ export function pdpRetentionSweep(dir: string): { vaultDropped: number; auditDro
 			pdpAudit(dir, "retention.sweep", { ...zero, days });
 		}
 		return zero;
+		});
 	} catch {
 		return zero;
 	}

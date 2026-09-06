@@ -69,6 +69,11 @@ const server = createServer(async (req, res) => {
 		}
 		const session = (req.headers["x-pdp-session-id"] as string) || "proxy";
 		const base = resolvePdpDir(process.env["PDP_DIR"]);
+		if (!Array.isArray(body["messages"]) || (body["messages"] as unknown[]).length === 0) {
+			pdpAudit(base, "proxy.blocked", { session, error: "messages bukan array non-kosong" });
+			send(res, 400, { error: { message: "pdp-proxy: messages harus array non-kosong (fail-closed)" } });
+			return;
+		}
 		const { messages: steril, report } = await pdpFase1Sterilize(body["messages"], base, { sessionId: session });
 		if (report.error) {
 			pdpAudit(base, "proxy.blocked", { session, error: report.error });

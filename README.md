@@ -101,8 +101,9 @@ out dapat ditelusur ke stamp-nya.
 (dengan `PDP_UPSTREAM_URL` + `PDP_UPSTREAM_KEY`), arahkan agent ke
 `http://127.0.0.1:11480` sebagai OpenAI-compatible endpoint. Header opsional
 `x-pdp-session-id` untuk isolasi vault. Constraint v1: non-streaming
-(`stream:true` ditolak eksplisit); gagal fase 1 = request ditahan
-(fail-closed + audit `proxy.blocked`). Reuse 100% core PDP yang sama.
+(`stream:true` ditolak eksplisit); `messages` kosong/bukan array ditolak
+(400); gagal fase 1 = request ditahan (fail-closed + audit `proxy.blocked`).
+Reuse 100% core PDP yang sama.
 
 ## Instalasi (mode fork)
 

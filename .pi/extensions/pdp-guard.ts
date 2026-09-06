@@ -12,6 +12,7 @@ const TOKEN = "[REDACTED]";
 
 const PATTERNS: Array<{ label: string; rx: RegExp }> = [
   { label: "NIK", rx: /\b\d{16}\b/g },
+  { label: "NIK_SEP", rx: /\b\d(?:[\s.\-]*\d){15}\b/g },
   { label: "PHONE_ID", rx: /\b(?:\+62|62|0)8\d{8,11}\b/g },
   { label: "EMAIL", rx: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
 ];
