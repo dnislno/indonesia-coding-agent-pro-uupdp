@@ -3,7 +3,7 @@
 // Tidak pernah throw: gagal = kembalikan pesan apa adanya + audit kegagalan.
 
 import { PII_PATTERNS, SPECIFIC_HINT } from "./patterns.ts";
-import { pdpAudit, resolvePdpDir, vaultPut } from "./store.ts";
+import { pdpAudit, pdpRetentionSweep, resolvePdpDir, vaultPut } from "./store.ts";
 
 export interface Fase1Report {
 	hits: Record<string, number>;
@@ -132,6 +132,7 @@ export async function pdpFase1Sterilize(
 		if (!Array.isArray(messages)) return { messages, report: empty };
 		const d = resolvePdpDir(dir);
 		const hits: Record<string, number> = {};
+		const sweep = pdpRetentionSweep(d);
 
 		pdpAudit(d, "fase1.input", {
 			nMessages: messages.length,

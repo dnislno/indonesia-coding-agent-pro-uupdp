@@ -34,12 +34,67 @@ Satu kalimat: **data asli tidak pernah keluar mesin; yang keluar hanya token.**
 | Fase 2 | Pesan steril | Provider frontier USA seperti biasa | Respons bertoken |
 | Fase 2b | Respons bertoken | `pdpFase2Restore` di `assistant.ts`; token -> nilai asli; audit `fase2.response` | Jawaban utuh ke user |
 
+## Data apa yang wajib steril (Pasal 4 UU 27/2022, terverifikasi verbatim)
+
+**Spesifik** (risiko tinggi, Psl 4 ayat 2): data dan informasi kesehatan;
+biometrik; genetika; catatan kejahatan; data anak; keuangan pribadi;
+data lainnya menurut peraturan.
+
+**Umum** (Psl 4 ayat 3): nama lengkap; jenis kelamin; kewarganegaraan; agama;
+status perkawinan; data yang dikombinasikan untuk mengidentifikasi seseorang.
+NIK, nomor HP, dan email masuk lewat huruf f ini (interpretasi standar:
+identifier tunggal/kombinasi yang mengidentifikasi).
+
+## Scope aplikasi: 3 tier, tegas
+
+**Tier 1 — ditokenisasi otomatis (tidak pernah keluar):** NIK 16 digit,
+nomor HP Indonesia, email. Aktif selalu, tanpa LLM. Nama orang dan alamat
+menyusul otomatis bila `PDP_LLM_URL` diset (klasifier lokal).
+
+**Tier 2 — ditandai, belum ditokenisasi:** kesehatan, biometrik, genetika,
+catatan kejahatan, data anak, keuangan pribadi. Kata pemicunya
+(`diagnosa`, `rekening`, `gaji`...) dicatat di laporan sebagai
+`SPECIFIC_HINT`, tapi kalimatnya tetap terkirim. Ini celah yang diketahui,
+lihat Batasan.
+
+**Tier 3 — di luar scope, tidak disentuh:** jenis kelamin, kewarganegaraan,
+agama, status perkawinan (risiko rendah, merusak jawaban bila disensor);
+gambar/lampiran biner; `systemPrompt`; argumen tool yang ditulis model
+(mis. perintah shell berisi NIK — lewat jalur tool, bukan pesan).
+
+Di luar 3 tier di atas = bukan janji aplikasi ini.
+
+## Bukti implementasi maksimal (evidence)
+
+Setiap kiriman meninggalkan rantai stempel di `.pi/pdp/audit.jsonl`:
+
+```json
+{"ts":1788651011.89,"stage":"fase1.input","nMessages":2,"text":"..."}
+{"ts":1788651011.90,"stage":"fase1.steril","report":{"hits":{"NIK":1},"tokens":1,"llmUsed":false}}
+{"ts":1788651012.41,"stage":"fase2.response","tokensRestored":1}
+{"ts":1788690000.00,"stage":"retention.sweep","vaultDropped":3,"auditDropped":12,"auditKept":40,"days":30}
+```
+
+Ditambah: `vault.json` (peta token, satu-satunya tempat nilai asli),
+`/pdp-purge` (hapus vault + log = hak hapus Psl 8-15), dan retensi otomatis:
+
+| Data | Default | Atur | Mati |
+|---|---|---|---|
+| Vault token | 30 hari | `PDP_RETENTION_DAYS=N` | `=0` |
+| Baris audit | 30 hari | sama | sama |
+
+Sapu jalan tiap awal fase 1 dan mengaudit dirinya sendiri
+(`retention.sweep`). Ini jawaban atas Psl 35-40 (keamanan + pencatatan)
+dan bahan penekan denda Psl 184-185: tiap byte yang keluar bisa ditelusur
+ke stempelnya.
+
 Env:
 
 * `PDP_GUARD=0` matikan lapisan (darurat/test)
 * `PDP_DIR` pindah vault + log (default `<cwd>/.pi/pdp`)
 * `PDP_LLM_URL=http://127.0.0.1:8080` aktifkan klasifier lokal
 * `PDP_LLM_MODEL` nama model di router (default `local-pii-8b`)
+* `PDP_RETENTION_DAYS` batas simpan vault + audit hari (default `30`, `0` = nonaktif)
 
 Perintah dalam agent: `/pdp-status` (5 baris audit terakhir), `/pdp-purge`
 (hapus vault + log = hak hapus UU PDP).
@@ -87,12 +142,15 @@ Sisanya 100% upstream.
   Konflik hanya mungkin di 3 file edit di atas; selebihnya merge bersih.
 * `pdp-bump-llama` (harian): pin build llama.cpp baru dibuka sebagai PR.
 
-## Batas jujur
+## Batasan (dibaca sebelum klaim patuh)
 
-* Filter bisa lolos (false negative): log menyimpan diff sebagai bukti usaha maksimal,
-  bukan bukti sempurna.
-* `vault.json` masih plain: enkripsi AES sebelum dipakai produksi sungguhan.
-* Vault per direktori proyek (`process.cwd()` bila core tak tahu cwd).
+1. Tier 2 hanya ditandai, tidak disensor: kalimat diagnosa/rekening tetap terkirim.
+2. Filter bisa lolos: nama samaran, typo NIK, NIK terpotong spasi.
+3. `vault.json` plain: enkripsi AES sebelum produksi sungguhan.
+4. Argumen tool dari model tidak lewat fase 1.
+5. Gambar, file biner, dan `systemPrompt` tidak dipindai.
+6. Satu direktori vault per proyek; server multi-user butuh isolasi per sesi.
+7. Tanpa `PDP_LLM_URL`, nama/alamat bebas pola lolos.
 
 ## Dasar hukum (ringkas, per Sep 2026)
 

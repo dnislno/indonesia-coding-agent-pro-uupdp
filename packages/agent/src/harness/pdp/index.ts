@@ -4,5 +4,5 @@
 
 export { pdpFase1Sterilize, type Fase1Report } from "./fase1.ts";
 export { pdpFase2Restore } from "./fase2.ts";
-export { resolvePdpDir, pdpAudit, vaultGet, vaultPut } from "./store.ts";
+export { resolvePdpDir, pdpAudit, pdpRetentionSweep, vaultGet, vaultPut } from "./store.ts";
 export { TOKEN_RE, makeToken } from "./patterns.ts";

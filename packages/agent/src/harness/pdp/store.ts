@@ -68,6 +68,66 @@ export function vaultGet(dir: string, token: string): string | undefined {
 	return readVault(dir).tokens[token]?.value;
 }
 
+/** Batas simpan hari (env PDP_RETENTION_DAYS, default 30, 0 = nonaktif). */
+export function retentionDays(): number {
+	const raw = process.env["PDP_RETENTION_DAYS"];
+	if (raw === undefined || raw === "") return 30;
+	const n = Number.parseInt(raw, 10);
+	return Number.isFinite(n) && n >= 0 ? n : 30;
+}
+
+/**
+ * Sapu entri vault + baris audit lebih tua dari batas. Kembalikan hitungan.
+ * Dipanggil tiap awal fase 1. Audit hasilnya sebagai stempel retention.sweep.
+ */
+export function pdpRetentionSweep(dir: string): { vaultDropped: number; auditDropped: number; auditKept: number } {
+	const zero = { vaultDropped: 0, auditDropped: 0, auditKept: 0 };
+	try {
+		const days = retentionDays();
+		if (days <= 0) return zero;
+		const cutoff = Date.now() - days * 86400 * 1000;
+		const v = readVault(dir);
+		for (const [tok, e] of Object.entries(v.tokens)) {
+			if (e.ts < cutoff) {
+				delete v.tokens[tok];
+				zero.vaultDropped++;
+			}
+		}
+		writeVault(dir, v);
+		let kept = 0;
+		let dropped = 0;
+		try {
+			if (existsSync(auditPath(dir))) {
+				const lines = readFileSync(auditPath(dir), "utf8").split("\n");
+				const fresh = lines.filter((l) => {
+					if (!l.trim()) return false;
+					try {
+						const ts = (JSON.parse(l) as { ts?: number }).ts ?? 0;
+						if (ts < cutoff) {
+							dropped++;
+							return false;
+						}
+					} catch {
+						return true;
+					}
+					kept++;
+					return true;
+				});
+				writeFileSync(auditPath(dir), `${fresh.join("\n")}${fresh.length > 0 ? "\n" : ""}`);
+			}
+		} catch {
+			/* biarkan */
+		}
+		zero.auditDropped = dropped;
+		zero.auditKept = kept;
+		if (zero.vaultDropped > 0 || zero.auditDropped > 0) {
+			pdpAudit(dir, "retention.sweep", { ...zero, days });
+		}
+		return zero;
+	} catch {
+		return zero;
+	}
+}
 /** Audit append-only satu baris JSON per kejadian. Tidak pernah throw. */
 export function pdpAudit(dir: string, stage: string, data: Record<string, unknown>): void {
 	try {
