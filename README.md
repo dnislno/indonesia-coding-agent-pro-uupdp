@@ -6,14 +6,34 @@ satu tambahan: **local sterilization layer 2 fase**. Personal data
 ditokenisasi di mesin sendiri sebelum request ke frontier USA LLM API,
 lalu dikembalikan utuh saat response tiba.
 
-## How it works (30 detik)
+## Daftar isi
+
+1. [Cara kerja 30 detik](#cara-kerja-30-detik)
+2. [Dua pintu pemakaian](#dua-pintu-satu-core)
+3. [Quickstart proxy (5 menit)](#quickstart-proxy-5-menit)
+4. [Quickstart fork](#quickstart-fork)
+5. [Input, process, output](#input-process-output)
+6. [Data yang wajib steril (Pasal 4)](#data-apa-yang-wajib-steril-pasal-4-uu-272022-terverifikasi-verbatim)
+7. [Scope 3 tier](#scope-aplikasi-3-tier-tegas)
+8. [Evidence](#bukti-implementasi-evidence)
+9. [Environment variables](#environment-variables)
+10. [In-agent commands](#in-agent-commands)
+11. [Struktur repo](#struktur-repo-mana-milik-siapa)
+12. [Update upstream](#update-upstream)
+13. [Keamanan dan konkurensi](#keamanan-dan-konkurensi)
+14. [Batasan](#batasan-dibaca-sebelum-klaim-patuh)
+15. [Dasar hukum](#dasar-hukum-ringkas-per-sep-2026)
+16. [Atribusi](#atribusi)
+
+## Cara kerja 30 detik
 
 ```
 INPUT dev:  "betulkan query WHERE nik='3174051209900001'"
    |  stamp 1: fase1.input (full text + timestamp -> audit.jsonl)
    v
 FASE 1 (local): NIK/HP/email -> __PDP_NIK_1__ (session vault di
-<cwd>/.pi/pdp/sessions/<id>/vault.json, isolated per session)
+<cwd>/.pi/pdp/sessions/<id>/vault.json, isolated per session,
+encrypted bila PDP_VAULT_KEY diset)
    |  stamp 2: fase1.steril (hits + timestamp -> audit.jsonl) = compliance evidence
    v
 yang terkirim ke frontier USA: "betulkan query WHERE nik='__PDP_NIK_1__'"
@@ -27,17 +47,82 @@ OUTPUT user: "Query WHERE nik='3174051209900001' sudah benar"
 
 Intinya satu kalimat: **raw data tidak pernah keluar mesin; yang keluar hanya token.**
 
+## Dua pintu, satu core
+
+**Fork (deep integration, user pi):** proteksi always-on di `transformContext`
++ final message + `tool_call` block. Tanpa konfigurasi per prompt.
+
+**Proxy (any agent, v3):** server OpenAI-compatible di `packages/pdp-proxy`.
+Agent apa pun diarahkan ke sini sebagai endpoint. Constraint v1: non-streaming
+(`stream:true` ditolak eksplisit dengan pesan jelas); `messages` kosong/bukan
+array ditolak (400 + audit `proxy.blocked`); gagal fase 1 = request ditahan
+(fail-closed + audit `proxy.blocked`). Reuse 100% core PDP yang sama.
+
+## Quickstart proxy (5 menit)
+
+Prasyarat: Node 22+, satu frontier API key.
+
+```bash
+# 1. Konfigurasi (sekali saja per shell)
+export PDP_UPSTREAM_URL="https://api.openai.com/v1"
+export PDP_UPSTREAM_KEY="<frontier-key>"
+export PDP_VAULT_KEY="<frasa-rahasia-panjang-min-16-karakter>"
+export PDP_PROXY_PORT=11480
+
+# 2. Jalankan proxy (dari root repo)
+node packages/pdp-proxy/src/server.ts
+# -> pdp-proxy v1 di http://127.0.0.1:11480 -> ... [non-streaming]
+
+# 3. Arahkan agent ke http://127.0.0.1:11480 sebagai base URL,
+#    kirim header x-pdp-session-id: <id-unik-per-user-atau-proyek>
+```
+
+Contoh request langsung:
+
+```bash
+curl -X POST http://127.0.0.1:11480/v1/chat/completions \
+  -H "content-type: application/json" \
+  -H "x-pdp-session-id: klinik-a" \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"cek nik 3174051209900001"}]}'
+```
+
+Cek bukti: `cat .pi/pdp/sessions/klinik-a/audit.jsonl`.
+Cek kesehatan: `curl http://127.0.0.1:11480/healthz`.
+
+## Quickstart fork
+
+1. Cara cepat classifier lokal: `bash pdp/setup-llama.sh` (Windows git-bash,
+   Linux, macOS). Atau manual, ambil binary llama.cpp sesuai OS
+   (pinned build: `pdp/LLAMA_PIN`):
+   * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
+   * Windows x64 CPU only: `llama-<build>-bin-win-cpu-x64.zip`
+   * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
+   * Ubuntu x64: `llama-<build>-bin-ubuntu-x64.tar.gz`
+   * macOS arm64: `llama-<build>-bin-macos-arm64.tar.gz`
+2. Jalankan local router:
+   ```bash
+   llama-server --models-dir ~/models --no-models-autoload --jinja \
+     --host 127.0.0.1 --port 8080 -ngl 999 -c 32768
+   ```
+3. Jalankan agent, lalu di dalamnya: `/login llama.cpp`, `/llama` (download/load
+   model), `/model` (pilih model). Tanpa `PDP_LLM_URL`, regex filter tetap jalan.
+4. Production: `export PDP_VAULT_KEY="<frasa-rahasia>" PDP_LLM_URL=http://127.0.0.1:8080`
+
+Visual diagram: buka `pdp/alir-data.html`.
+
 ## Input, process, output
 
 | Stage | Input | Process (lokasi) | Output |
 |---|---|---|---|
-| Fase 1a | Raw prompt + file context | `pdpFase1Sterilize` via `transformContext` di `sdk.ts`; retention sweep; audit `fase1.input` | Logged text + timestamp |
-| Fase 1b | Logged text | Alias watchlist -> NIK separator -> regex NIK/phone/email -> token vault; optional local LLM via `PDP_LLM_URL` (llama.cpp `:8080`) untuk name/address; audit `fase1.steril` | Sterilized messages + hit report |
+| Fase 1a | Raw prompt + file context | `pdpFase1Sterilize` via `transformContext` di `sdk.ts` (fork) atau handler proxy; retention sweep; audit `fase1.input` | Logged text + timestamp |
+| Fase 1b | Logged text | Alias watchlist -> NIK separator -> regex NIK/phone/email -> token vault (AES bila key diset, mutex antar-proses); optional local LLM via `PDP_LLM_URL` (llama.cpp `:8080`) untuk name/address; audit `fase1.steril` | Sterilized messages + hit report |
 | Fase 2 | Sterilized messages | Frontier provider USA seperti biasa | Tokenized response |
-| Fase 2b | Tokenized response | `pdpFase2Restore` di `assistant.ts`; token -> original value dari vault; audit `fase2.response` | Full answer ke user |
-| Guard | Model tool arguments | Event `tool_call` di extension: pola PII = execution ditolak + audit `block_tool` | Tool berbahaya tidak jalan |
+| Fase 2b | Tokenized response | `pdpFase2Restore` di `assistant.ts` (fork) atau proxy handler; token -> original value dari vault; audit `fase2.response` | Full answer ke user |
+| Guard | Model tool arguments (fork) | Event `tool_call` di extension: pola PII (termasuk NIK separator) = execution ditolak + audit `block_tool` | Tool berbahaya tidak jalan |
 
-## Data apa yang wajib steril (Pasal 4 UU 27/2022, verified verbatim)
+## Data apa yang wajib steril (Pasal 4 UU 27/2022, terverifikasi verbatim)
+
+Sumber teks: pasal.id, cross-check metadata BPK RI. Bukan nasihat hukum.
 
 **Specific** (high risk, Psl 4 ayat 2): health data and information;
 biometric; genetic; criminal records; children data; personal financial data;
@@ -66,7 +151,7 @@ vault) — untuk klinik/RS.
 marital status (low risk, merusak answer quality bila disensor);
 binary images/attachments; `systemPrompt`.
 
-Di luar 3 tier = bukan janji aplikasi ini.
+Di luar 3 tier di atas = bukan janji aplikasi ini.
 
 ## Bukti implementasi (evidence)
 
@@ -78,6 +163,10 @@ Setiap request meninggalkan stamp chain di `sessions/<id>/audit.jsonl`:
 {"ts":1788651012.41,"stage":"fase2.response","tokensRestored":1}
 {"ts":1788690000.00,"stage":"retention.sweep","vaultDropped":3,"auditDropped":12,"auditKept":40,"days":30}
 ```
+
+Mode proxy menambah `proxy.forward` (session, token count, upstream host),
+`proxy.blocked` (request ditahan + alasan), `proxy.upstream_error` (status).
+Mode fork menambah `block_tool` (tool ditolak + pola) via extension.
 
 Plus: `vault.json` (encrypted token map, satu-satunya tempat original value),
 `/pdp-purge` (wipe vault + log = hak hapus Psl 8-15), dan automatic retention:
@@ -92,61 +181,34 @@ Sweep jalan tiap awal fase 1 dan mengaudit dirinya sendiri
 dan menjadi mitigating evidence untuk denda Psl 184-185: every byte sent
 out dapat ditelusur ke stamp-nya.
 
-## Cara pakai: dua pintu, satu core
+## Environment variables
 
-**Fork (deep integration, user pi):** proteksi always-on di `transformContext`
-+ final message + `tool_call` block. Tanpa konfigurasi per prompt.
+| Variable | Default | Efek |
+|---|---|---|
+| `PDP_GUARD` | on | `=0` disable seluruh layer (emergency/test) |
+| `PDP_DIR` | `<cwd>/.pi/pdp` | pindah vault + log |
+| `PDP_VAULT_KEY` | kosong (plain + warning) | passphrase enkripsi vault AES-256-GCM (wajib production) |
+| `PDP_LLM_URL` | off | `http://127.0.0.1:8080` enable local classifier |
+| `PDP_LLM_MODEL` | `local-pii-8b` | model name di llama.cpp router |
+| `PDP_RETENTION_DAYS` | `30` | batas simpan vault + audit hari (`0` = off) |
+| `PDP_STRICT` | `0` | `=1` full sentence redaction Tier 2 |
+| `PDP_SESSIONS` | on | `=0` disable isolasi vault per session |
+| `PDP_UPSTREAM_URL` | wajib (proxy) | frontier base URL, mis. `https://api.openai.com/v1` |
+| `PDP_UPSTREAM_KEY` | wajib (proxy) | frontier API key (hanya di env, tidak di-log) |
+| `PDP_PROXY_PORT` | `11480` | listen port proxy (localhost only) |
 
-**Proxy (any agent, v3):** jalankan `node packages/pdp-proxy/src/server.ts`
-(dengan `PDP_UPSTREAM_URL` + `PDP_UPSTREAM_KEY`), arahkan agent ke
-`http://127.0.0.1:11480` sebagai OpenAI-compatible endpoint. Header opsional
-`x-pdp-session-id` untuk isolasi vault. Constraint v1: non-streaming
-(`stream:true` ditolak eksplisit); `messages` kosong/bukan array ditolak
-(400); gagal fase 1 = request ditahan (fail-closed + audit `proxy.blocked`).
-Reuse 100% core PDP yang sama.
+## In-agent commands (mode fork)
 
-## Instalasi (mode fork)
-
-Cara cepat: `bash pdp/setup-llama.sh` (Windows git-bash, Linux, macOS).
-Atau manual:
-
-1. Ambil binary llama.cpp sesuai OS (pinned build: `pdp/LLAMA_PIN`):
-   * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
-   * Windows x64 CPU only: `llama-<build>-bin-win-cpu-x64.zip`
-   * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
-   * Ubuntu x64: `llama-<build>-bin-ubuntu-x64.tar.gz`
-   * macOS arm64: `llama-<build>-bin-macos-arm64.tar.gz`
-2. Jalankan local router:
-   ```bash
-   llama-server --models-dir ~/models --no-models-autoload --jinja \
-     --host 127.0.0.1 --port 8080 -ngl 999 -c 32768
-   ```
-3. Jalankan agent, lalu di dalamnya: `/login llama.cpp`, `/llama` (download/load
-   model), `/model` (pilih model). Tanpa `PDP_LLM_URL`, regex filter tetap jalan.
-4. Untuk production: `export PDP_VAULT_KEY="frasa-rahasia-panjang" PDP_LLM_URL=http://127.0.0.1:8080`
-
-Environment variables:
-
-* `PDP_GUARD=0` disable layer (emergency/test)
-* `PDP_DIR` pindah vault + log (default `<cwd>/.pi/pdp`)
-* `PDP_LLM_URL=http://127.0.0.1:8080` enable local classifier
-* `PDP_LLM_MODEL` model name di router (default `local-pii-8b`)
-* `PDP_RETENTION_DAYS` retention hari vault + audit (default `30`, `0` = off)
-* `PDP_STRICT=1` full sentence redaction Tier 2 (default `0` = flag only)
-* `PDP_VAULT_KEY` encryption passphrase vault AES-256-GCM (wajib production)
-* `PDP_SESSIONS=0` disable per-session vault isolation (default on)
-
-In-agent commands: `/pdp-status` (recent audit across sessions), `/pdp-purge`
-(wipe vault + log = hak hapus UU PDP).
-
-Visual diagram: buka `pdp/alir-data.html`.
+* `/pdp-status` — recent audit trail across sessions.
+* `/pdp-purge` — wipe vault + log proyek ini (konfirmasi dulu).
 
 ## Struktur repo (mana milik siapa)
 
 Baru milik produk:
 
 * `packages/agent/src/harness/pdp/` — `patterns.ts`, `store.ts` (AES vault + audit +
-  retention + sessions), `fase1.ts`, `fase2.ts`, `index.ts`
+  retention + sessions + mutex), `fase1.ts`, `fase2.ts`, `index.ts`
+* `packages/pdp-proxy/` — standalone proxy (`src/server.ts`), reuse core di atas
 * `.pi/extensions/pdp-guard.ts` — tool argument blocker + second net +
   `/pdp-status` + `/pdp-purge`
 * `pdp/` — docs, `LLAMA_PIN`, `setup-llama.sh`, `aliases.example.json`,
@@ -166,21 +228,36 @@ Sisanya 100% upstream.
   Konflik hanya mungkin di 3 file edit di atas; selebihnya clean merge.
 * `pdp-bump-llama` (daily): new llama.cpp build pin dibuka sebagai PR.
 
-## Batasan (baca sebelum klaim patuh)
+## Keamanan dan konkurensi
+
+Hasil audit internal (lihat riwayat commit):
+
+* Vault write mutually exclusive antar-proses (atomic mkdir lock + stale
+  reclaim + 2s timeout melempar agar fail-closed). Referensi pola:
+  `proper-lockfile`.
+* Torn read saat writer lain aktif di-retry 4x sebelum menyerah.
+* scrypt key derivation di-cache per nilai env (bukan per token).
+* Proxy fail-closed berlapis: `stream:true` ditolak, `messages` invalid
+  ditolak 400, gagal fase 1 ditahan 500 — semua + audit `proxy.blocked`.
+* Frontier key hanya via env, tidak pernah ditulis ke log/vault.
+
+## Batasan (dibaca sebelum klaim patuh)
 
 1. Tier 2 default flag only; full redaction butuh `PDP_STRICT=1`.
 2. Filter bisa miss: alias names, typo NIK. Spaced/dashed NIK dan
-   watchlist covered sejak P1.
+   watchlist covered.
 3. Vault encrypted hanya bila `PDP_VAULT_KEY` diset; tanpa key = plain +
    warning. Wajib set untuk production.
-4. Tool arguments berpola PII hard-blocked (`tool_call` block). Covered sejak P0.
+4. Tool arguments berpola PII hard-blocked (`tool_call` block).
 5. Images, binary files, dan `systemPrompt` tidak dipindai.
 6. Vault isolated per session (`sessions/<id>/`, default on).
-   Multi-process satu sesi OS masih share via `PDP_ACTIVE_DIR`.
+   Multi-process satu sesi OS berbagi via `PDP_ACTIVE_DIR` (mutex-protected).
 7. Tanpa `PDP_LLM_URL`, free-form names/addresses lolos.
 8. Bila fase 1 crash di mode fork, pesan mentah lanjut + audit `fase1.error`
-   (jaring kedua extension menutup pola dasar). Mode proxy fail-closed
-   (request ditahan + audit `proxy.blocked`).
+   (second net extension menutup pola dasar). Mode proxy fail-closed.
+9. Proxy v1 non-streaming only. `npm run check` upstream butuh
+   `node_modules` (belum dijalankan di sini); penggantinya bundle esbuild
+   + 11 unit test lolos pada code asli.
 
 ## Dasar hukum (ringkas, per Sep 2026)
 
