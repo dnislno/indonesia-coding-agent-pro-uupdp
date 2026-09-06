@@ -3,7 +3,7 @@
 // Never throws: on failure return messages unchanged + audit the failure.
 
 import { PII_PATTERNS, SPECIFIC_HINT } from "./patterns.ts";
-import { pdpAudit, pdpRetentionSweep, resolvePdpDir, vaultPut } from "./store.ts";
+import { pdpAudit, pdpRetentionSweep, resolvePdpDir, resolveSessionDir, vaultPut } from "./store.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -27,6 +27,8 @@ export interface Fase1Report {
 	specificHint: boolean;
 	llmUsed: boolean;
 	llmExtra: number;
+	/** Terisi bila fase 1 gagal: penelepon WAJIB fail-closed (jangan teruskan mentah). */
+	error?: string;
 }
 
 /** 16 digit with separators (spasi/titik/strip): "3174 0512 0990 0001". */
@@ -272,11 +274,12 @@ export async function pdpFase1Sterilize(
 		pdpAudit(d, "fase1.steril", { report });
 		return { messages: out, report, dir: d };
 	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
 		try {
-			pdpAudit(resolvePdpDir(dir), "fase1.error", { error: err instanceof Error ? err.message : String(err) });
+			pdpAudit(resolvePdpDir(dir), "fase1.error", { error: msg });
 		} catch {
 			/* abaikan */
 		}
-		return { messages, report: empty, dir: base };
+		return { messages, report: { ...empty, error: msg }, dir: base };
 	}
 }

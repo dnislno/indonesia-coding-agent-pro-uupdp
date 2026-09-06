@@ -1,0 +1,13 @@
+{
+	"name": "@dnislno/pdp-proxy",
+	"version": "3.0.0",
+	"private": true,
+	"type": "module",
+	"description": "Standalone OpenAI-compatible sterilizing proxy (UU PDP Indonesia). Reuse core packages/agent/src/harness/pdp.",
+	"bin": {
+		"pdp-proxy": "./src/server.ts"
+	},
+	"scripts": {
+		"start": "node src/server.ts"
+	}
+}

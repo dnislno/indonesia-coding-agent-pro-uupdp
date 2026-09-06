@@ -92,10 +92,21 @@ Sweep jalan tiap awal fase 1 dan mengaudit dirinya sendiri
 dan menjadi mitigating evidence untuk denda Psl 184-185: every byte sent
 out dapat ditelusur ke stamp-nya.
 
-## Instalasi
+## Cara pakai: dua pintu, satu core
 
-Cara cepat: `bash pdp/setup-llama.sh` (Windows git-bash, Linux, macOS) —
-download binary sesuai OS + model Qwen2.5-3B, lalu print router command.
+**Fork (deep integration, user pi):** proteksi always-on di `transformContext`
++ final message + `tool_call` block. Tanpa konfigurasi per prompt.
+
+**Proxy (any agent, v3):** jalankan `node packages/pdp-proxy/src/server.ts`
+(dengan `PDP_UPSTREAM_URL` + `PDP_UPSTREAM_KEY`), arahkan agent ke
+`http://127.0.0.1:11480` sebagai OpenAI-compatible endpoint. Header opsional
+`x-pdp-session-id` untuk isolasi vault. Constraint v1: non-streaming
+(`stream:true` ditolak eksplisit); gagal fase 1 = request ditahan
+(fail-closed + audit `proxy.blocked`). Reuse 100% core PDP yang sama.
+
+## Instalasi (mode fork)
+
+Cara cepat: `bash pdp/setup-llama.sh` (Windows git-bash, Linux, macOS).
 Atau manual:
 
 1. Ambil binary llama.cpp sesuai OS (pinned build: `pdp/LLAMA_PIN`):
@@ -166,6 +177,9 @@ Sisanya 100% upstream.
 6. Vault isolated per session (`sessions/<id>/`, default on).
    Multi-process satu sesi OS masih share via `PDP_ACTIVE_DIR`.
 7. Tanpa `PDP_LLM_URL`, free-form names/addresses lolos.
+8. Bila fase 1 crash di mode fork, pesan mentah lanjut + audit `fase1.error`
+   (jaring kedua extension menutup pola dasar). Mode proxy fail-closed
+   (request ditahan + audit `proxy.blocked`).
 
 ## Dasar hukum (ringkas, per Sep 2026)
 

@@ -10,15 +10,21 @@ direstore saat response tiba. Raw PII never leaves the machine.
 
 ## How to use
 
-1. Prasyarat: Node 22+, satu frontier API key (Anthropic/OpenAI/dll).
-2. Optional local classifier: `bash pdp/setup-llama.sh`, jalankan router yang
+Dua pintu, satu core. **Fork mode** (user pi): proteksi always-on, no per-prompt
+flags. **Proxy mode** (any OpenAI-compatible agent, v3): set `PDP_UPSTREAM_URL`
++ `PDP_UPSTREAM_KEY`, run `node packages/pdp-proxy/src/server.ts`, point agent
+at `http://127.0.0.1:11480`, optional `x-pdp-session-id` header. v1 constraint:
+non-streaming only; fase-1 failure = request held (fail-closed).
+Prasyarat: Node 22+, satu frontier API key.
+
+1. Optional local classifier: `bash pdp/setup-llama.sh`, jalankan router yang
    dicetaknya, lalu `export PDP_LLM_URL=http://127.0.0.1:8080`.
-3. Production wajib: `export PDP_VAULT_KEY="<long-random-passphrase>"`.
-4. Jalankan agent dari root repo (atau install per upstream docs), pakai normal.
+2. Production wajib: `export PDP_VAULT_KEY="<long-random-passphrase>"`.
+3. Jalankan agent dari root repo (atau install per upstream docs), pakai normal.
    Proteksi always-on di dua hook: `transformContext` (fase 1 sterilize) dan
    final assistant message (fase 2 restore). Tidak ada flag khusus per prompt.
-5. Cek bukti: `/pdp-status` (recent audit trail), `/pdp-purge` (wipe vault+logs).
-6. Konfigurasi via env: `PDP_STRICT=1` (full Tier-2 sentence redaction),
+4. Cek bukti: `/pdp-status` (recent audit trail), `/pdp-purge` (wipe vault+logs).
+5. Konfigurasi via env: `PDP_STRICT=1` (full Tier-2 sentence redaction),
    `PDP_RETENTION_DAYS` (default 30), `PDP_DIR`, `PDP_SESSIONS=0` (off),
    `PDP_GUARD=0` (emergency off). Daftar nama pantau: `.pi/pdp/aliases.json`
    (contoh: `pdp/aliases.example.json`).
