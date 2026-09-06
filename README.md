@@ -1,120 +1,110 @@
-> **Distribusi Indonesia (UU PDP 27/2022 + PP 33/2026):** fork ini menambah
-> `pdp-guard` (redaksi NIK/HP/email sebelum request ke provider), pin binary
-> llama.cpp (`pdp/LLAMA_PIN`), dan workflow auto-sync. Mulai dari `pdp/README.md`.
-> Upstream asli: [earendil-works/pi](https://github.com/earendil-works/pi).
+# indonesia-coding-agent-pro-uupdp
 
-<p align="center">
-  <a href="https://pi.dev">
-    <img alt="pi logo" src="https://pi.dev/logo-auto.svg" width="128">
-  </a>
-</p>
-<p align="center">
-  <a href="https://discord.com/invite/3cU7Bz4UPx"><img alt="Discord" src="https://img.shields.io/badge/discord-community-5865F2?style=flat-square&logo=discord&logoColor=white" /></a>
-  <a href="https://www.npmjs.com/package/@earendil-works/pi-coding-agent"><img alt="npm" src="https://img.shields.io/npm/v/@earendil-works/pi-coding-agent?style=flat-square" /></a>
-</p>
+Coding agent yang patuh **UU No. 27 Tahun 2022 (PDP) + PP No. 33 Tahun 2026**.
+Full fork [earendil-works/pi](https://github.com/earendil-works/pi) + lapisan sterilisasi
+lokal 2 fase: data pribadi ditokenisasi di mesin sendiri sebelum ke API frontier USA,
+dikembalikan utuh saat respons tiba.
 
-> New issues and PRs from new contributors are auto-closed by default. Maintainers review auto-closed issues daily. See [CONTRIBUTING.md](CONTRIBUTING.md).
+## Cara kerja (30 detik)
 
-# Pi Agent Harness
-
-This is the home of the Pi agent harness project including our self extensible coding agent.
-
-* **[@earendil-works/pi-coding-agent](packages/coding-agent)**: Interactive coding agent CLI
-* **[@earendil-works/pi-agent-core](packages/agent)**: Agent runtime with tool calling and state management
-* **[@earendil-works/pi-ai](packages/ai)**: Unified multi-provider LLM API (OpenAI, Anthropic, Google, …)
-
-To learn more about Pi:
-
-* [Visit pi.dev](https://pi.dev), the project website with demos
-* [Read the documentation](https://pi.dev/docs/latest), but you can also ask the agent to explain itself
-
-## All Packages
-
-| Package | Description |
-|---------|-------------|
-| **[@earendil-works/chord](packages/chord)** | Standalone application-composition runtime for services, replicated state, RPC, and plugins |
-| **[@earendil-works/pi-telemetry](packages/telemetry)** | Vendor-neutral telemetry contracts, reference adapter, conformance tests, and typed schemas |
-| **[@earendil-works/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
-| **[@earendil-works/pi-agent-core](packages/agent)** | Agent runtime with tool calling and state management |
-| **[@earendil-works/pi-coding-agent](packages/coding-agent)** | Interactive coding agent CLI |
-| **[@earendil-works/pi-tui](packages/tui)** | Terminal UI library with differential rendering |
-
-For Slack/chat automation and workflows see [earendil-works/pi-chat](https://github.com/earendil-works/pi-chat).
-
-## Permissions & Containerization
-
-Pi does not include a built-in permission system for restricting filesystem, process, network, or credential access. By default, it runs with the permissions of the user and process that launched it.
-
-If you need stronger boundaries, containerize or sandbox Pi. See [packages/coding-agent/docs/containerization.md](packages/coding-agent/docs/containerization.md) for three patterns:
-
-- **Gondolin extension**: keep `pi` and provider auth on the host while routing built-in tools and `!` commands into a local Linux micro-VM.
-- **Plain Docker**: run the whole `pi` process in a local container for simple isolation.
-- **OpenShell**: run the whole `pi` process in a policy-controlled sandbox.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for project-specific rules (for both humans and agents).  Longer term plans for Pi can also be found in [RFCs](https://rfc.earendil.com/keyword/pi/).
-
-## Development
-
-```bash
-npm install --ignore-scripts  # Install all dependencies without running lifecycle scripts
-npm run build         # Refresh model data, then build all packages
-npm run build:offline # Rebuild using existing model data without network access
-npm run check         # Lint, format, and type check
-./test.sh            # Run tests (skips LLM-dependent tests without API keys)
-./pi-test.sh         # Run pi from sources (can be run from any directory)
+```
+INPUT dev:  "betulkan query WHERE nik='3174051209900001'"
+   |  stempel 1: fase1.input (teks + timestamp -> audit.jsonl)
+   v
+FASE 1 (lokal): NIK/HP/email -> __PDP_NIK_1__ (vault .pi/pdp/vault.json)
+   |  stempel 2: fase1.steril (hits + timestamp -> audit.jsonl) = bukti patuh
+   v
+yang dikirim ke frontier USA: "betulkan query WHERE nik='__PDP_NIK_1__'"
+   |
+   v
+respons model (masih bertoken)
+   |  stempel 3: fase2.response (tokensRestored + timestamp)
+   v
+OUTPUT user: "Query WHERE nik='3174051209900001' sudah benar"
 ```
 
-## Building standalone binaries from release source
+Satu kalimat: **data asli tidak pernah keluar mesin; yang keluar hanya token.**
 
-GitHub releases include a versioned source archive covered by the release's `SHA256SUMS` file. Extract it and run the same build script used for the official standalone binaries:
+## Input, proses, output
 
-```bash
-VERSION="<release-version>"
-tar -xzf "pi-${VERSION}-source.tar.gz"
-cd "pi-${VERSION}"
-./scripts/build-binaries.sh --offline-model-data --platform linux-x64 --out "$PWD/out"
-```
+| Tahap | Input | Proses (di mana) | Output |
+|---|---|---|---|
+| Fase 1a | Prompt + konteks file mentah | `pdpFase1Sterilize` via `transformContext` di `sdk.ts`; audit `fase1.input` | Teks tercatat + timestamp |
+| Fase 1b | Teks tercatat | Regex NIK/HP/email -> token vault; opsional LLM lokal via `PDP_LLM_URL` (llama.cpp `:8080`) untuk nama/alamat; audit `fase1.steril` | Pesan steril + laporan hits |
+| Fase 2 | Pesan steril | Provider frontier USA seperti biasa | Respons bertoken |
+| Fase 2b | Respons bertoken | `pdpFase2Restore` di `assistant.ts`; token -> nilai asli; audit `fase2.response` | Jawaban utuh ke user |
 
-The archive includes release model data and native prebuilds. `--offline-model-data` uses that model data without refreshing provider catalogs. The script installs dependencies and builds the executable with its runtime assets; pass `--skip-install` if dependencies are already provided.
+Env:
 
-## Supply-chain hardening
+* `PDP_GUARD=0` matikan lapisan (darurat/test)
+* `PDP_DIR` pindah vault + log (default `<cwd>/.pi/pdp`)
+* `PDP_LLM_URL=http://127.0.0.1:8080` aktifkan klasifier lokal
+* `PDP_LLM_MODEL` nama model di router (default `local-pii-8b`)
 
-We treat npm dependency changes as reviewed code changes.
+Perintah dalam agent: `/pdp-status` (5 baris audit terakhir), `/pdp-purge`
+(hapus vault + log = hak hapus UU PDP).
 
-- Direct external dependencies are pinned to exact versions. Internal workspace packages remain version-ranged.
-- `.npmrc` sets `save-exact=true` and `min-release-age=2` to avoid same-day dependency releases during npm resolution.
-- `package-lock.json` is the dependency ground truth. Pre-commit blocks accidental lockfile commits unless `PI_ALLOW_LOCKFILE_CHANGE=1` is set.
-- `npm run check` verifies pinned direct deps, native TypeScript import compatibility, and the generated coding-agent shrinkwrap.
-- The published CLI package includes `packages/coding-agent/npm-shrinkwrap.json`, generated from the root lockfile, to pin transitive deps for npm users.
-- Release smoke tests use `npm run release:local` to build, pack, and create isolated npm and Bun installs outside the repo before tagging a release.
-- Local release installs, documented npm installs, and `pi update --self` use `--ignore-scripts` where supported.
-- CI installs with `npm ci --ignore-scripts`, and a scheduled GitHub workflow runs `npm audit --omit=dev` plus `npm audit signatures --omit=dev`.
-- Shrinkwrap generation has an explicit allowlist for dependency lifecycle scripts; new lifecycle-script deps fail checks until reviewed.
+## Instalasi
 
-## Share your OSS coding agent sessions
+1. Ambil binary llama.cpp sesuai OS (pin saat ini: `pdp/LLAMA_PIN`):
+   * Windows x64 tanpa NVIDIA: `llama-<build>-bin-win-vulkan-x64.zip`
+   * Windows x64 CPU saja: `llama-<build>-bin-win-cpu-x64.zip`
+   * Windows x64 NVIDIA: `llama-<build>-bin-win-cuda-12.4-x64.zip`
+   * Ubuntu x64: `llama-<build>-bin-ubuntu-x64.tar.gz`
+   * macOS arm64: `llama-<build>-bin-macos-arm64.tar.gz`
+2. Jalankan router lokal:
+   ```bash
+   llama-server --models-dir ~/models --no-models-autoload --jinja \
+     --host 127.0.0.1 --port 8080 -ngl 999 -c 32768
+   ```
+3. Jalankan agent, lalu di dalamnya: `/login llama.cpp`, `/llama` (unduh/muat model),
+   `/model` (pilih model). Tanpa `PDP_LLM_URL`, filter regex tetap jalan.
+4. Opsional: `export PDP_LLM_URL=http://127.0.0.1:8080` untuk deteksi nama/alamat.
 
-If you use Pi or other coding agents for open source work, please share your sessions.
+Diagram visual: buka `pdp/alir-data.html`.
 
-Public OSS session data helps improve coding agents with real-world tasks, tool use, failures, and fixes instead of toy benchmarks.
+## Struktur repo (mana milik siapa)
 
-For the full explanation, see [this post on X](https://x.com/badlogicgames/status/2037811643774652911).
+Baru milik produk:
 
-To publish sessions, use [`badlogic/pi-share-hf`](https://github.com/badlogic/pi-share-hf). Read its README.md for setup instructions. All you need is a Hugging Face account, the Hugging Face CLI, and `pi-share-hf`.
+* `packages/agent/src/harness/pdp/` — `patterns.ts`, `store.ts` (vault + audit),
+  `fase1.ts`, `fase2.ts`, `index.ts`
+* `.pi/extensions/pdp-guard.ts` — jaring kedua + `/pdp-status` + `/pdp-purge`
+* `pdp/` — `README.md`, `LLAMA_PIN`, `MAPPING_PASAL.md`, `alir-data.html`,
+  `python-oracle/` (spesifikasi pola + test paritas)
 
-You can also watch [this video](https://x.com/badlogicgames/status/2041151967695634619), where I show how I publish my `pi-mono` sessions.
+Edit file upstream, masing-masing ditandai `PDP-ID` (<5 baris):
 
-I regularly publish my own `pi-mono` work sessions here:
+1. `packages/coding-agent/src/core/sdk.ts` — `transformContext` memanggil fase 1
+2. `packages/agent/src/harness/execution/assistant.ts` — pesan final lewat fase 2
+3. `packages/agent/package.json` — exports += `./harness/pdp`
 
-- [badlogicgames/pi-mono on Hugging Face](https://huggingface.co/datasets/badlogicgames/pi-mono)
+Sisanya 100% upstream.
 
-## License
+## Update upstream
 
-MIT
+* `pdp-sync-upstream` (harian): merge `earendil-works/pi` `main` ke sini.
+  Konflik hanya mungkin di 3 file edit di atas; selebihnya merge bersih.
+* `pdp-bump-llama` (harian): pin build llama.cpp baru dibuka sebagai PR.
 
-<p align="center">
-  <a href="https://pi.dev">pi.dev</a> domain graciously donated by
-  <br /><br />
-  <a href="https://exe.dev"><img src="packages/coding-agent/docs/images/exy.png" alt="Exy mascot" width="48" /><br />exe.dev</a>
-</p>
+## Batas jujur
+
+* Filter bisa lolos (false negative): log menyimpan diff sebagai bukti usaha maksimal,
+  bukan bukti sempurna.
+* `vault.json` masih plain: enkripsi AES sebelum dipakai produksi sungguhan.
+* Vault per direktori proyek (`process.cwd()` bila core tak tahu cwd).
+
+## Dasar hukum (ringkas, per Sep 2026)
+
+* UU 27/2022 berlaku penuh Okt 2024; PP 33/2026 aturan pelaksanaannya.
+* PP Psl 184: sanksi administratif (teguran, henti sementara, hapus/musnahkan, denda).
+* PP Psl 185: denda maks 2% pendapatan tahunan (ditimbang dampak, durasi, jenis data,
+  jumlah subjek, kerja sama, skala usaha, riwayat patuh).
+* PP Psl 105-106: subjek data bisa minta ganti rugi, ditolak = bisa gugat.
+* Lapisan ini menjawab: minimisasi (Psl 16), data spesifik (Psl 4/PP Psl 6),
+  pencatatan pemrosesan (Psl 35-40), hak hapus (Psl 8-15).
+
+## Atribusi
+
+Upstream: [earendil-works/pi](https://github.com/earendil-works/pi) (MIT).
+Dokumentasi asli tiap paket tetap di `packages/*/README.md`.
