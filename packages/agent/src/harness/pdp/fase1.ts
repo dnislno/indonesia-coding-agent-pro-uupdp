@@ -5,6 +5,20 @@
 import { PII_PATTERNS, SPECIFIC_HINT } from "./patterns.ts";
 import { pdpAudit, pdpRetentionSweep, resolvePdpDir, vaultPut } from "./store.ts";
 
+/**
+ * PDP_STRICT=1: kalimat berisi kata pemicu data spesifik ditokenisasi utuh.
+ * Default 0 = hanya tandai (SPECIFIC_HINT). Kalimat asli masuk vault.
+ */
+function strictSentences(text: string, dir: string, hits: Record<string, number>): string {
+	if (process.env["PDP_STRICT"] !== "1") return text;
+	return text.replace(/[^.!?\n]+[.!?\n]*/g, (sent) => {
+		SPECIFIC_HINT.lastIndex = 0;
+		if (!SPECIFIC_HINT.test(sent)) return sent;
+		hits["STRICT_SENTENCE"] = (hits["STRICT_SENTENCE"] ?? 0) + 1;
+		return vaultPut(dir, "SENSITIVE", sent);
+	});
+}
+
 export interface Fase1Report {
 	hits: Record<string, number>;
 	tokens: number;
@@ -23,7 +37,7 @@ export function sterilizeText(text: string, dir: string, hits: Record<string, nu
 			return vaultPut(dir, label, m);
 		});
 	}
-	return out;
+	return strictSentences(out, dir, hits);
 }
 
 function sterilizeContent(content: unknown, dir: string, hits: Record<string, number>): unknown {

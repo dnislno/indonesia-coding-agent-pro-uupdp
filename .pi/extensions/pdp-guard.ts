@@ -63,6 +63,24 @@ function auditTail(cwd: string, n: number): string[] {
 }
 
 export default function (pi: ExtensionAPI) {
+  // P0: tolak eksekusi tool yang argumennya mengandung pola PII.
+  // Jalur tool tidak lewat fase 1 core; ini satu-satunya penutupnya.
+  pi.on("tool_call", async (event: any, ctx: any) => {
+    try {
+      const raw = JSON.stringify(event?.input ?? {});
+      const hits: Hits = {};
+      redactString(raw, hits);
+      const n = Object.values(hits).reduce<number>((a, b) => a + b, 0);
+      if (n === 0) return undefined;
+      const reason = `PDP: argumen tool '${event?.toolName ?? "?"}' mengandung ${n} pola data pribadi (${Object.keys(hits).join(", ")}). Sterilkan dulu.`;
+      ctx.ui.notify(reason, "error");
+      pi.appendEntry("pdp-guard", { ts: Date.now(), action: "block_tool", tool: event?.toolName, hits });
+      return { block: true, reason };
+    } catch {
+      return undefined;
+    }
+  });
+
   pi.on("before_provider_request", async (event: any, ctx: any) => {
     const { payload, hits } = redactPayload(event?.payload);
     const n = Object.values(hits).reduce<number>((a, b) => a + b, 0);

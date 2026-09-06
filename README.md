@@ -54,13 +54,13 @@ menyusul otomatis bila `PDP_LLM_URL` diset (klasifier lokal).
 **Tier 2 — ditandai, belum ditokenisasi:** kesehatan, biometrik, genetika,
 catatan kejahatan, data anak, keuangan pribadi. Kata pemicunya
 (`diagnosa`, `rekening`, `gaji`...) dicatat di laporan sebagai
-`SPECIFIC_HINT`, tapi kalimatnya tetap terkirim. Ini celah yang diketahui,
-lihat Batasan.
+`SPECIFIC_HINT`, tapi kalimatnya tetap terkirim. Aktifkan `PDP_STRICT=1`
+agar kalimat berpemicu ditokenisasi utuh (`__PDP_SENSITIVE_n__`, aslinya
+di vault) — untuk klinik/RS. Default 0 demi UX dev.
 
 **Tier 3 — di luar scope, tidak disentuh:** jenis kelamin, kewarganegaraan,
 agama, status perkawinan (risiko rendah, merusak jawaban bila disensor);
-gambar/lampiran biner; `systemPrompt`; argumen tool yang ditulis model
-(mis. perintah shell berisi NIK — lewat jalur tool, bukan pesan).
+gambar/lampiran biner; `systemPrompt`.
 
 Di luar 3 tier di atas = bukan janji aplikasi ini.
 
@@ -95,6 +95,7 @@ Env:
 * `PDP_LLM_URL=http://127.0.0.1:8080` aktifkan klasifier lokal
 * `PDP_LLM_MODEL` nama model di router (default `local-pii-8b`)
 * `PDP_RETENTION_DAYS` batas simpan vault + audit hari (default `30`, `0` = nonaktif)
+* `PDP_STRICT=1` tokenisasi kalimat Tier 2 utuh (default `0` = hanya tandai)
 
 Perintah dalam agent: `/pdp-status` (5 baris audit terakhir), `/pdp-purge`
 (hapus vault + log = hak hapus UU PDP).
@@ -144,10 +145,11 @@ Sisanya 100% upstream.
 
 ## Batasan (dibaca sebelum klaim patuh)
 
-1. Tier 2 hanya ditandai, tidak disensor: kalimat diagnosa/rekening tetap terkirim.
+1. Tier 2 default hanya ditandai; sensor penuh butuh `PDP_STRICT=1`.
 2. Filter bisa lolos: nama samaran, typo NIK, NIK terpotong spasi.
 3. `vault.json` plain: enkripsi AES sebelum produksi sungguhan.
-4. Argumen tool dari model tidak lewat fase 1.
+4. Argumen tool yang mengandung pola PII ditolak mentah (`tool_call` block).
+   Tertutup sejak P0.
 5. Gambar, file biner, dan `systemPrompt` tidak dipindai.
 6. Satu direktori vault per proyek; server multi-user butuh isolasi per sesi.
 7. Tanpa `PDP_LLM_URL`, nama/alamat bebas pola lolos.
