@@ -1,4 +1,1 @@
-b10819
-# Pin build llama.cpp. Baris pertama = tag build. Di-bump otomatis oleh workflow pdp-bump-llama.
-# Aset per OS mengikuti pola: llama-<build>-bin-win-vulkan-x64.zip, ubuntu-x64.tar.gz, macos-arm64.tar.gz
-# Terverifikasi 2026-09-06 via GitHub Releases API (27 aset).
+b10834
